@@ -7,7 +7,11 @@ import { AuthRepository } from '../auth/authRepository';
 import { AuthService } from '../auth/authService';
 import { BotAccountRepository } from '../bots/botAccountRepository';
 import { BotAccountService } from '../bots/botAccountService';
+import { BotAuthService } from '../bots/botAuthService';
+import { BotPlayService } from '../bots/botPlayService';
+import { BotPlayerMapper } from '../bots/botPlayerMapper';
 import { BotSeatManager } from '../bots/botSeatManager';
+import { BotStreamRegistry } from '../bots/botStreamRegistry';
 import { EngineDriver } from '../bots/drivers/engineDriver';
 import { EngineWorkerPool } from '../bots/drivers/engineWorkerPool';
 import { HouseBotService } from '../bots/houseBotService';
@@ -55,6 +59,10 @@ export function createAppContainer(): DependencyContainer {
     appContainer.registerSingleton(DevSupportService);
     appContainer.registerSingleton(BotAccountRepository);
     appContainer.registerSingleton(BotAccountService);
+    appContainer.registerSingleton(BotAuthService);
+    appContainer.registerSingleton(BotPlayerMapper);
+    appContainer.registerSingleton(BotPlayService);
+    appContainer.registerSingleton(BotStreamRegistry);
     appContainer.registerSingleton(BotSeatManager);
     /* Sized like the house-bot cap: one worker per game the engines may be in. */
     appContainer.registerInstance(EngineWorkerPool, new EngineWorkerPool(
