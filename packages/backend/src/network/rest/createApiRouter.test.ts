@@ -8,10 +8,13 @@ import express from 'express';
 
 import type { AccountUserProfile } from '../../auth/authRepository';
 import { MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
+import { BotMoveError } from '../../bots/botPlayService';
 import { ApiRequestError } from './apiQueryService';
 import { ApiRouter } from './createApiRouter';
 
 const owner = { id: `owner-1`, kind: `human` } as AccountUserProfile;
+const botAccount = { id: `bot-1`, username: `Botty`, kind: `bot` } as AccountUserProfile;
+const botPlayer = { profileId: `bot-1`, displayName: `Botty`, elo: 1_000 };
 const bot = {
     id: `bot-1`,
     username: `Botty`,
@@ -25,6 +28,8 @@ function createRouter(overrides: {
     user?: AccountUserProfile | null;
     botApiEnabled?: boolean;
     botAccountService?: Partial<Record<string, unknown>>;
+    botToken?: AccountUserProfile | null;
+    botPlayService?: Partial<Record<string, unknown>>;
 }) {
     const botAccountService = {
         listBots: () => Promise.resolve([bot]),
@@ -48,6 +53,14 @@ function createRouter(overrides: {
         {} as never,
         { botApiEnabled: overrides.botApiEnabled ?? true } as never,
         botAccountService as never,
+        { getBotFromRequest: () => Promise.resolve(overrides.botToken ?? null) } as never,
+        {
+            getAccount: () => Promise.resolve({ bot: botPlayer, owner: botPlayer, activeGames: [] }),
+            joinSession: () => Promise.resolve(),
+            playMove: () => Promise.resolve(),
+            ...overrides.botPlayService,
+        } as never,
+        { attach: () => { }, open: () => { }, getSocketId: (id: string) => `bot:${id}` } as never,
     );
 }
 
@@ -152,5 +165,79 @@ test(`the routes are absent while the flag is off`, async () => {
     await withServer(createRouter({ user: owner, botApiEnabled: false }), async (baseUrl) => {
         const response = await fetch(`${baseUrl}/account/bots`);
         assert.equal(response.status, 404);
+    });
+});
+
+test(`the play routes reject a request without a bot token`, async () => {
+    const router = createRouter({ botToken: null });
+
+    await withServer(router, async (baseUrl) => {
+        for (const [method, path] of [
+            [`GET`, `/bot/account`],
+            [`GET`, `/bot/stream`],
+            [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/session/abc123/join`],
+        ] as const) {
+            const response = await fetch(`${baseUrl}${path}`, { method });
+            assert.equal(response.status, 401, path);
+        }
+    });
+});
+
+test(`the play routes do not exist while the flag is off`, async () => {
+    const router = createRouter({ botApiEnabled: false, botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        for (const [method, path] of [
+            [`GET`, `/bot/account`],
+            [`GET`, `/bot/stream`],
+            [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/session/abc123/join`],
+        ] as const) {
+            const response = await fetch(`${baseUrl}${path}`, { method });
+            assert.equal(response.status, 404, path);
+        }
+    });
+});
+
+test(`a bot reads its own account`, async () => {
+    const router = createRouter({ botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/account`);
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { bot: botPlayer, owner: botPlayer, activeGames: [] });
+    });
+});
+
+test(`a rejected move answers with the contract's error code`, async () => {
+    const router = createRouter({
+        botToken: botAccount,
+        botPlayService: {
+            playMove: () => Promise.reject(new BotMoveError(`It is not your turn.`, `not-your-turn`)),
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/game/game-1/move`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ move: { pieces: [{ q: 1, r: 0 }, { q: 2, r: 0 }] } }),
+        });
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(await response.json(), { error: `It is not your turn.`, code: `not-your-turn` });
+    });
+});
+
+test(`joining a lobby answers ok`, async () => {
+    const router = createRouter({ botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/session/abc123/join`, { method: `POST` });
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { ok: true });
     });
 });

@@ -71,6 +71,22 @@ export class BotAccountRepository {
         return this.mapBotAccount(document, tokens.get(botProfileId) ?? null);
     }
 
+    async findById(botProfileId: string): Promise<BotAccount | null> {
+        const collection = await this.getUsersCollection();
+        const objectId = this.parseObjectId(botProfileId);
+        if (!objectId) {
+            return null;
+        }
+
+        const document = await collection.findOne({ _id: objectId, kind: `bot`, deletedAt: null });
+        if (!document) {
+            return null;
+        }
+
+        const tokens = await this.getTokensByBotIds([botProfileId]);
+        return this.mapBotAccount(document, tokens.get(botProfileId) ?? null);
+    }
+
     async create(ownerProfileId: string, username: string): Promise<BotAccount> {
         const collection = await this.getUsersCollection();
         const now = Date.now();

@@ -12,6 +12,9 @@ const TOKEN_PREFIX = `hxo_`;
 const TOKEN_BYTES = 32;
 
 export const MAX_BOTS_PER_OWNER = 3;
+/* Constants, not config: a server operator has no reason to tune either of these, and
+ * neither is part of the contract. */
+export const MAX_CONCURRENT_GAMES_PER_BOT = 4;
 
 export type IssuedBotAccount = {
     bot: BotAccount;

@@ -48,6 +48,9 @@ import { ServerShutdownService } from '../../admin/serverShutdownService';
 import { type AccountUserProfile, AuthRepository } from '../../auth/authRepository';
 import { AuthService } from '../../auth/authService';
 import { BotAccountService, MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
+import { BotAuthService } from '../../bots/botAuthService';
+import { BotMoveError, BotPlayService } from '../../bots/botPlayService';
+import { BotStreamRegistry } from '../../bots/botStreamRegistry';
 import { ServerConfig } from '../../config/serverConfig';
 import { DevSupportService } from '../../dev/devSupportService';
 import { SandboxPositionService } from '../../sandbox/sandboxPositionService';
@@ -143,6 +146,9 @@ export class ApiRouter {
         @inject(TournamentService) private readonly tournamentService: TournamentService,
         @inject(ServerConfig) private readonly serverConfig: ServerConfig,
         @inject(BotAccountService) private readonly botAccountService: BotAccountService,
+        @inject(BotAuthService) private readonly botAuthService: BotAuthService,
+        @inject(BotPlayService) private readonly botPlayService: BotPlayService,
+        @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
     ) {
         const router = express.Router();
 
@@ -213,6 +219,39 @@ export class ApiRouter {
         });
 
         if (this.serverConfig.botApiEnabled) {
+            /* Subscribing here keeps the flag the only switch: off, nothing listens. */
+            this.botStreamRegistry.attach();
+
+            router.get(`/bot/account`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    res.json(await this.botPlayService.getAccount(bot));
+                });
+            });
+
+            router.get(`/bot/stream`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, (bot) => {
+                    req.socket.setTimeout(0);
+                    req.socket.setNoDelay(true);
+                    /* `open=1` is parsed and held; it only bites once challenges ship. */
+                    this.botStreamRegistry.open(bot, res, req.query.open === `1`);
+                    return Promise.resolve();
+                });
+            });
+
+            router.post(`/bot/game/:gameId/move`, express.json(), async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.botPlayService.playMove(bot, req.params.gameId, req.body);
+                    res.json({ ok: true });
+                });
+            });
+
+            router.post(`/bot/session/:sessionId/join`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.botPlayService.joinSession(bot, req.params.sessionId);
+                    res.json({ ok: true });
+                });
+            });
+
             router.get(`/account/bots`, async (req, res) => {
                 await this.handleBotAccountRequest(req, res, async (owner) => {
                     const response: BotAccountsResponse = {
@@ -1184,6 +1223,43 @@ export class ApiRouter {
         }
 
         return user;
+    }
+
+    /**
+     * Bot routes answer a bearer token instead of a session cookie, and answer a move
+     * rejection with the contract's machine-readable code.
+     */
+    private async handleBotApiRequest(
+        req: express.Request,
+        res: express.Response,
+        handle: (bot: AccountUserProfile) => Promise<void>,
+    ): Promise<void> {
+        const bot = await this.botAuthService.getBotFromRequest(req);
+        if (!bot) {
+            res.status(401).json({ error: `A bot account token is required.` });
+            return;
+        }
+
+        try {
+            await handle(bot);
+        } catch (error: unknown) {
+            if (error instanceof BotMoveError) {
+                res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+                return;
+            }
+
+            if (error instanceof ApiRequestError) {
+                res.status(error.statusCode).json({ error: error.message });
+                return;
+            }
+
+            if (error instanceof SessionError) {
+                res.status(400).json({ error: error.message });
+                return;
+            }
+
+            throw error;
+        }
     }
 
     private async handleBotAccountRequest(
