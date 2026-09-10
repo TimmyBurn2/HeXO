@@ -34,3 +34,6 @@ packages/shared/src/generatedChangelog.ts
 
 .agents
 skills-lock.json
+# python example
+__pycache__/
+*.pyc
