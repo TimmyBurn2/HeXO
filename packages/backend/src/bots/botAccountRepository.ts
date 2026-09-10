@@ -123,6 +123,19 @@ export class BotAccountRepository {
         return createdAt;
     }
 
+    /** Resolves a presented token by its hash; the unique index makes this one probe. */
+    async findBotIdByTokenHash(tokenHash: string): Promise<string | null> {
+        const collection = await this.getTokensCollection();
+        const document = await collection.findOne({ tokenHash });
+
+        return document?.botProfileId ?? null;
+    }
+
+    async touchTokenLastUsed(tokenHash: string, lastUsedAt: number): Promise<void> {
+        const collection = await this.getTokensCollection();
+        await collection.updateOne({ tokenHash }, { $set: { lastUsedAt } });
+    }
+
     async deleteToken(botProfileId: string): Promise<void> {
         const collection = await this.getTokensCollection();
         await collection.deleteOne({ botProfileId });
