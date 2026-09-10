@@ -1,0 +1,290 @@
+import {
+    type BotAccountInfoResponse,
+    type BotDeclarationPatch,
+    type BotGameClock,
+    type BotGameSnapshot,
+    type BotMoveErrorCode,
+    type GameState,
+    getCellKey,
+    type HexCoordinate,
+    isCellWithinPlacementRadius,
+    zBotFinishReason,
+} from '@ih3t/shared';
+import { inject, injectable } from 'tsyringe';
+
+import { type AccountUserProfile, AuthRepository } from '../auth/authRepository';
+import { ApiRequestError } from '../network/rest/apiQueryService';
+import { MAX_PLAYERS_PER_SESSION, SessionManager } from '../session/sessionManager';
+import type { ServerGameSession, ServerSessionPlayer } from '../session/types';
+import { BotAccountRepository } from './botAccountRepository';
+import { MAX_CONCURRENT_GAMES_PER_BOT } from './botAccountService';
+import { BotPlayerMapper } from './botPlayerMapper';
+import { seatBotInLobby, underBotSeatGate } from './botSeatGate';
+import { BotStreamRegistry } from './botStreamRegistry';
+import { fromMoveResponse, HtttxCodecError, sideOf, toBoard } from './htttxCodec';
+
+/** A rejection a bot can act on, carrying one of the contract's move error codes. */
+export class BotMoveError extends ApiRequestError {
+    constructor(message: string, readonly code: BotMoveErrorCode | null = null) {
+        super(400, message);
+        this.name = `BotMoveError`;
+    }
+}
+
+@injectable()
+export class BotPlayService {
+    constructor(
+        @inject(SessionManager) private readonly sessionManager: SessionManager,
+        @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
+        @inject(BotAccountRepository) private readonly botAccountRepository: BotAccountRepository,
+        @inject(AuthRepository) private readonly authRepository: AuthRepository,
+        @inject(BotPlayerMapper) private readonly botPlayerMapper: BotPlayerMapper,
+    ) { }
+
+    async getAccount(bot: AccountUserProfile): Promise<BotAccountInfoResponse> {
+        const account = await this.botAccountRepository.findById(bot.id);
+        const owner = account ? await this.authRepository.getUserProfileById(account.ownerProfileId) : null;
+
+        return {
+            bot: await this.botPlayerMapper.fromProfile(bot),
+            owner: await this.botPlayerMapper.fromProfile(owner),
+            activeGames: this.getActiveGames(bot.id).map(({ session, participant }) => ({
+                gameId: session.gameId,
+                side: sideOf(session.gameState, participant.id),
+            })),
+            /* Each declared field rides along; an undeclared one stays absent. */
+            ...(account?.declaration ?? {}),
+        };
+    }
+
+    /** The declaration of the process that holds the token; only it may promise
+     * behaviour, which is why this is here and not on the owner's website surface. */
+    async updateAccount(bot: AccountUserProfile, patch: BotDeclarationPatch): Promise<BotAccountInfoResponse> {
+        const account = await this.botAccountRepository.updateDeclaration(bot.id, patch);
+        if (!account) {
+            throw new ApiRequestError(404, `That bot does not exist.`);
+        }
+
+        return await this.getAccount(bot);
+    }
+
+    /**
+     * A game as an observer sees it: the htttx board the players' own move requests
+     * are cut from, the clock, and whether it is still going. Any authenticated bot
+     * may read any game; a finished one is readable until the session is reaped.
+     */
+    async getGameSnapshot(gameId: string): Promise<BotGameSnapshot> {
+        const session = this.sessionManager.getSessionByGameId(gameId);
+        if (!session) {
+            throw new ApiRequestError(404, `That game does not exist.`);
+        }
+
+        const snapshot = this.sessionManager.getSessionSnapshot(session.id);
+        if (!snapshot) {
+            throw new ApiRequestError(404, `That game does not exist.`);
+        }
+
+        const finished = session.state === `finished`;
+        const reason = zBotFinishReason.safeParse(session.finishReason);
+        return {
+            gameId,
+            board: toBoard(snapshot.gameState),
+            clock: this.toGameClock(session, snapshot.gameState),
+            status: finished ? `finished` : `in-progress`,
+            ...(finished ? {
+                winner: session.winningPlayerId === null
+                    ? null
+                    : sideOf(snapshot.gameState, session.winningPlayerId),
+                reason: reason.success ? reason.data : `aborted`,
+            } : {}),
+        };
+    }
+
+    private toGameClock(session: ServerGameSession, gameState: GameState): BotGameClock {
+        const { timeControl } = session.gameOptions;
+        if (timeControl.mode === `turn`) {
+            return { mode: `turn`, remainingTurnMs: Math.max(0, gameState.currentTurnExpiresInMs ?? 0) };
+        }
+
+        if (timeControl.mode === `match`) {
+            const firstMover = gameState.cells[0]?.occupiedBy ?? gameState.currentTurnPlayerId;
+            const other = session.players.find((player) => player.id !== firstMover);
+            return {
+                mode: `match`,
+                remainingMainMs: {
+                    x: gameState.playerTimeRemainingMs[firstMover ?? ``] ?? 0,
+                    o: other ? gameState.playerTimeRemainingMs[other.id] ?? 0 : 0,
+                },
+            };
+        }
+
+        return { mode: `unlimited` };
+    }
+
+    /**
+     * The entry a human takes with a `?join=` link: the lobby was created for this
+     * bot, and the start arrives on the stream. Joining twice reclaims the same
+     * seat: a repeated call — the natural reaction to a lost response — must never
+     * take a second one, which would start a game the bot plays against itself and
+     * only ever answers one side of.
+     */
+    async joinSession(bot: AccountUserProfile, sessionId: string): Promise<void> {
+        if (!this.botStreamRegistry.isOnline(bot.id)) {
+            /* No stream, no seat: the game start arrives on the stream, and a seat
+             * marked connected with nobody listening would strand the lobby. */
+            throw new ApiRequestError(400, `Hold your stream open to join a game.`);
+        }
+
+        const session = this.sessionManager.requireSession(sessionId);
+        const socketId = this.botStreamRegistry.getSocketId(bot.id);
+        const seated = session.players.find((player) => player.profileId === bot.id);
+        const participantId = seated?.id ?? await this.claimSeat(session, bot);
+
+        this.sessionManager.assignParticipantSocket(session, participantId, socketId);
+    }
+
+    private async claimSeat(session: ServerGameSession, bot: AccountUserProfile): Promise<string> {
+        if (session.state !== `lobby`) {
+            throw new ApiRequestError(400, `That game has already started.`);
+        }
+
+        if (session.players.length >= MAX_PLAYERS_PER_SESSION) {
+            throw new ApiRequestError(400, `That lobby has no seat left for a bot.`);
+        }
+
+        if (!session.reservedPlayerProfileIds.includes(bot.id)) {
+            /* The route's only use is the bot's own reserved seat; any lobby whose
+             * id a bot learns is not automatically the bot's to take. */
+            throw new ApiRequestError(400, `That lobby has no seat reserved for this bot.`);
+        }
+
+        return await underBotSeatGate(() => seatBotInLobby(
+            { sessionManager: this.sessionManager, presence: this.botStreamRegistry },
+            session,
+            bot,
+            (botProfileId) => this.countActiveSessions(botProfileId),
+            {
+                offline: () => new ApiRequestError(400, `Hold your stream open to join a game.`),
+                capReached: () => new ApiRequestError(400, `A bot can play at most ${MAX_CONCURRENT_GAMES_PER_BOT} games at once.`),
+                seatLost: () => new ApiRequestError(400, `That lobby has no seat left for a bot.`),
+            },
+        ));
+    }
+
+    async playMove(bot: AccountUserProfile, gameId: string, body: unknown): Promise<void> {
+        const session = this.sessionManager.getSessionByGameId(gameId);
+        if (!session) {
+            throw new BotMoveError(`That game is not in progress.`, `game-over`);
+        }
+
+        const seat = session.players.find((player) => player.profileId === bot.id);
+        if (!seat) {
+            throw new BotMoveError(`You are not playing that game.`);
+        }
+
+        const move = this.decode(body);
+        if (this.isStale(session, bot.id, move.requestId)) {
+            throw new BotMoveError(`That move answers an earlier position.`, `stale-request`);
+        }
+
+        if (move.requestId !== null
+            && this.botStreamRegistry.getAnsweredRequestId(bot.id, session.id) === move.requestId) {
+            /* A retry of a move that already applied — the natural reaction to a lost
+             * HTTP response — is answered, not rejected as someone else's turn. */
+            return;
+        }
+
+        const rejection = this.classify(session, seat, move.cells);
+        if (rejection) {
+            throw new BotMoveError(rejection.message, rejection.code);
+        }
+
+        try {
+            await this.sessionManager.placeCells(session, seat.id, move.cells);
+            if (move.requestId !== null) {
+                this.botStreamRegistry.markAnsweredRequestId(bot.id, session.id, move.requestId);
+            }
+        } catch (error: unknown) {
+            /* Lost a race with the clock or the opponent: nothing was applied. */
+            const late = this.classify(session, seat, move.cells);
+            throw new BotMoveError(error instanceof Error ? error.message : `The move was rejected.`, late?.code ?? null);
+        }
+    }
+
+    private decode(body: unknown): { cells: [HexCoordinate, HexCoordinate], requestId: number | null } {
+        try {
+            return fromMoveResponse(body);
+        } catch (error: unknown) {
+            if (error instanceof HtttxCodecError) {
+                throw new BotMoveError(error.message, error.code);
+            }
+
+            throw error;
+        }
+    }
+
+    private isStale(session: ServerGameSession, botProfileId: string, requestId: number | null): boolean {
+        if (requestId === null) {
+            /* The contract makes request_id optional; a bot that omits it opts out. */
+            return false;
+        }
+
+        const current = this.botStreamRegistry.getRequestId(botProfileId, session.id);
+        return current !== null && requestId < current;
+    }
+
+    /**
+     * The server has no error codes of its own: every rule violation arrives as one
+     * free-text message. The code is therefore read off the position, never parsed out
+     * of a message, and the order is the order a bot can act on.
+     */
+    private classify(
+        session: ServerGameSession,
+        seat: ServerSessionPlayer,
+        cells: readonly HexCoordinate[],
+    ): { code: BotMoveErrorCode, message: string } | null {
+        const { gameState } = session;
+        if (session.state !== `in-game` || gameState.winner) {
+            return { code: `game-over`, message: `That game is over.` };
+        }
+
+        if (gameState.currentTurnPlayerId !== seat.id) {
+            return { code: `not-your-turn`, message: `It is not your turn.` };
+        }
+
+        const placed = gameState.cells.map((cell) => getCellKey(cell.x, cell.y));
+        const played: HexCoordinate[] = [...gameState.cells];
+        for (const cell of cells) {
+            if (placed.includes(getCellKey(cell.x, cell.y))) {
+                return { code: `occupied`, message: `That cell is already occupied.` };
+            }
+
+            if (!isCellWithinPlacementRadius(played, cell)) {
+                return { code: `out-of-range`, message: `That cell is out of placement range.` };
+            }
+
+            placed.push(getCellKey(cell.x, cell.y));
+            played.push(cell);
+        }
+
+        return null;
+    }
+
+    /** Games with a `gameId`, which is every game a bot can be asked to move in. */
+    private getActiveGames(botProfileId: string) {
+        return this.sessionManager.getPlayerParticipationsByProfileId(botProfileId)
+            .flatMap((participation) => participation.role === `player`
+                && participation.session.state === `in-game`
+                && participation.session.gameId
+                ? [{ session: participation.session, participant: participation.participant }]
+                : []);
+    }
+
+    /** The cap counts lobbies too: refusing only once a game starts is refusing too late. */
+    private countActiveSessions(botProfileId: string): number {
+        return this.sessionManager.getPlayerParticipationsByProfileId(botProfileId)
+            .filter((participation) => participation.role === `player`
+                && participation.session.state !== `finished`)
+            .length;
+    }
+}

@@ -179,3 +179,46 @@ test(`migration 015 gives every bot a driver; seeding the house bots is idempote
         assert.equal((await repository.listAll()).length, 2);
     });
 });
+
+test(`a declaration is stored per field, cleared by empty strings, accepts replaced wholesale`, async () => {
+    await withRepository(async ({ repository }) => {
+        const bot = await repository.create(`owner-1`, `Strix`);
+        assert.equal((await repository.findById(bot.id))?.declaration, undefined, `nothing declared to begin with`);
+
+        const declared = await repository.updateDeclaration(bot.id, {
+            about: `Strix, the reference bot`,
+            version: `1.0.0`,
+            repoUrl: `https://github.com/TimmyBurn2/Hexo-Bot-Api`,
+            accepts: { turnMs: [5_000, 600_000], match: true, unlimited: true },
+        });
+        assert.deepEqual(declared?.declaration, {
+            about: `Strix, the reference bot`,
+            version: `1.0.0`,
+            repoUrl: `https://github.com/TimmyBurn2/Hexo-Bot-Api`,
+            accepts: { turnMs: [5_000, 600_000], match: true, unlimited: true },
+        });
+
+        /* The roster query sees the same declaration without a second read. */
+        assert.deepEqual((await repository.listAll()).find((account) => account.id === bot.id)?.declaration?.about, `Strix, the reference bot`);
+
+        const cleared = await repository.updateDeclaration(bot.id, {
+            about: ``,
+            accepts: { turnMs: null, match: false, unlimited: true },
+        });
+        assert.deepEqual(cleared?.declaration, {
+            version: `1.0.0`,
+            repoUrl: `https://github.com/TimmyBurn2/Hexo-Bot-Api`,
+            accepts: { turnMs: null, match: false, unlimited: true },
+        }, `an empty string clears its field, accepts replace wholesale`);
+
+        const untouched = await repository.updateDeclaration(bot.id, {});
+        assert.deepEqual(untouched?.declaration, cleared?.declaration, `an empty patch writes nothing`);
+    });
+});
+
+test(`a declaration for an unknown bot answers null`, async () => {
+    await withRepository(async ({ repository }) => {
+        assert.equal(await repository.updateDeclaration(`not-an-object-id`, { about: `x` }), null);
+        assert.equal(await repository.updateDeclaration(new ObjectId().toHexString(), { about: `x` }), null);
+    });
+});

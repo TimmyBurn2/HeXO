@@ -8,10 +8,13 @@ import express from 'express';
 
 import type { AccountUserProfile } from '../../auth/authRepository';
 import { MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
+import { BotMoveError } from '../../bots/botPlayService';
 import { ApiRequestError } from './apiQueryService';
 import { ApiRouter } from './createApiRouter';
 
 const owner = { id: `owner-1`, kind: `human` } as AccountUserProfile;
+const botAccount = { id: `bot-1`, username: `Botty`, kind: `bot` } as AccountUserProfile;
+const botPlayer = { profileId: `bot-1`, displayName: `Botty`, elo: 1_000 };
 const bot = {
     id: `bot-1`,
     username: `Botty`,
@@ -25,6 +28,8 @@ function createRouter(overrides: {
     user?: AccountUserProfile | null;
     botApiEnabled?: boolean;
     botAccountService?: Partial<Record<string, unknown>>;
+    botToken?: AccountUserProfile | null;
+    botPlayService?: Partial<Record<string, unknown>>;
     houseBotService?: Partial<Record<string, unknown>>;
     sessionManager?: Partial<Record<string, unknown>>;
 }) {
@@ -60,6 +65,16 @@ function createRouter(overrides: {
         {} as never,
         { botApiEnabled: overrides.botApiEnabled ?? true } as never,
         botAccountService as never,
+        { getBotFromRequest: () => Promise.resolve(overrides.botToken ?? null) } as never,
+        {
+            getAccount: () => Promise.resolve({ bot: botPlayer, owner: botPlayer, activeGames: [] }),
+            updateAccount: () => Promise.resolve({ bot: botPlayer, owner: botPlayer, activeGames: [] }),
+            getGameSnapshot: () => Promise.resolve({ gameId: `game-1`, board: { to_move: `x`, cells: [] }, clock: { mode: `unlimited` }, status: `in-progress` }),
+            joinSession: () => Promise.resolve(),
+            playMove: () => Promise.resolve(),
+            ...overrides.botPlayService,
+        } as never,
+        { attach: () => { }, open: () => { }, getSocketId: (id: string) => `bot:${id}` } as never,
         houseBotService as never,
     );
 }
@@ -165,6 +180,162 @@ test(`the routes are absent while the flag is off`, async () => {
     await withServer(createRouter({ user: owner, botApiEnabled: false }), async (baseUrl) => {
         const response = await fetch(`${baseUrl}/account/bots`);
         assert.equal(response.status, 404);
+    });
+});
+
+test(`the play routes reject a request without a bot token`, async () => {
+    const router = createRouter({ botToken: null });
+
+    await withServer(router, async (baseUrl) => {
+        for (const [method, path] of [
+            [`GET`, `/bot/account`],
+            [`PATCH`, `/bot/account`],
+            [`GET`, `/bot/stream`],
+            [`GET`, `/bot/game/game-1`],
+            [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/session/abc123/join`],
+        ] as const) {
+            const response = await fetch(`${baseUrl}${path}`, { method });
+            assert.equal(response.status, 401, path);
+        }
+    });
+});
+
+test(`the play routes do not exist while the flag is off`, async () => {
+    const router = createRouter({ botApiEnabled: false, botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        for (const [method, path] of [
+            [`GET`, `/bot/account`],
+            [`PATCH`, `/bot/account`],
+            [`GET`, `/bot/stream`],
+            [`GET`, `/bot/game/game-1`],
+            [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/session/abc123/join`],
+        ] as const) {
+            const response = await fetch(`${baseUrl}${path}`, { method });
+            assert.equal(response.status, 404, path);
+        }
+    });
+});
+
+test(`a bot reads its own account`, async () => {
+    const router = createRouter({ botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/account`);
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { bot: botPlayer, owner: botPlayer, activeGames: [] });
+    });
+});
+
+test(`a declaration patch reaches the service, an invalid one answers 400`, async () => {
+    const seen: unknown[] = [];
+    const router = createRouter({
+        botToken: botAccount,
+        botPlayService: {
+            updateAccount: (_bot: unknown, patch: unknown) => {
+                seen.push(patch);
+                return Promise.resolve({ bot: botPlayer, owner: botPlayer, activeGames: [] });
+            },
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/account`, {
+            method: `PATCH`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({
+                about: `Strix, a reference bot`,
+                version: `1.0.0`,
+                repoUrl: `https://github.com/TimmyBurn2/Hexo-Bot-Api`,
+                accepts: { turnMs: [5_000, 600_000], match: true, unlimited: true },
+            }),
+        });
+
+        assert.equal(response.status, 200);
+        assert.equal(seen.length, 1);
+
+        /* The window is the one shape a bot can get wrong: min above max. */
+        for (const body of [
+            { accepts: { turnMs: [60_000, 5_000], match: true, unlimited: true } },
+            { repoUrl: `not a url` },
+            { about: `x`.repeat(281) },
+        ]) {
+            const rejected = await fetch(`${baseUrl}/bot/account`, {
+                method: `PATCH`,
+                headers: { 'Content-Type': `application/json` },
+                body: JSON.stringify(body),
+            });
+
+            assert.equal(rejected.status, 400, JSON.stringify(body));
+            assert.deepEqual(await rejected.json(), { error: `The account declaration is not valid.` });
+        }
+
+        assert.equal(seen.length, 1, `no invalid patch reached the service`);
+    });
+});
+
+test(`a game snapshot is served to any authenticated bot, a 404 stays a 404`, async () => {
+    const router = createRouter({
+        botToken: botAccount,
+        botPlayService: {
+            getGameSnapshot: (gameId: string) => gameId === `game-1`
+                ? Promise.resolve({
+                    gameId,
+                    board: { to_move: `o`, cells: [{ q: 0, r: 0, p: `x` }] },
+                    clock: { mode: `unlimited` },
+                    status: `in-progress`,
+                })
+                : Promise.reject(new ApiRequestError(404, `That game does not exist.`)),
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/game/game-1`);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+            gameId: `game-1`,
+            board: { to_move: `o`, cells: [{ q: 0, r: 0, p: `x` }] },
+            clock: { mode: `unlimited` },
+            status: `in-progress`,
+        });
+
+        const missing = await fetch(`${baseUrl}/bot/game/nope`);
+        assert.equal(missing.status, 404);
+        assert.deepEqual(await missing.json(), { error: `That game does not exist.` });
+    });
+});
+
+test(`a rejected move answers with the contract's error code`, async () => {
+    const router = createRouter({
+        botToken: botAccount,
+        botPlayService: {
+            playMove: () => Promise.reject(new BotMoveError(`It is not your turn.`, `not-your-turn`)),
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/game/game-1/move`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ move: { pieces: [{ q: 1, r: 0 }, { q: 2, r: 0 }] } }),
+        });
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(await response.json(), { error: `It is not your turn.`, code: `not-your-turn` });
+    });
+});
+
+test(`joining a lobby answers ok`, async () => {
+    const router = createRouter({ botToken: botAccount });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/session/abc123/join`, { method: `POST` });
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { ok: true });
     });
 });
 

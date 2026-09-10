@@ -1,4 +1,4 @@
-import { BotAccount } from '@ih3t/shared';
+import { BotAccount, type BotAccepts, type BotDeclaration, type BotDeclarationPatch } from '@ih3t/shared';
 import { Collection, type Document, ObjectId } from 'mongodb';
 import type { Logger } from 'pino';
 import { inject, injectable } from 'tsyringe';
@@ -34,6 +34,8 @@ type BotUserDocument = {
     deletedAt?: number | null;
     driver?: BotDriver;
     houseKey?: string;
+    /** What the bot declared about itself over `PATCH /api/bot/account`, if anything. */
+    declaration?: BotDeclaration;
 } & Document;
 
 type BotTokenDocument = {
@@ -148,6 +150,59 @@ export class BotAccountRepository {
         return this.mapBotAccount(document, tokens.get(botProfileId) ?? null);
     }
 
+    async findById(botProfileId: string): Promise<BotAccount | null> {
+        const collection = await this.getUsersCollection();
+        const objectId = this.parseObjectId(botProfileId);
+        if (!objectId) {
+            return null;
+        }
+
+        const document = await collection.findOne({ _id: objectId, kind: `bot`, deletedAt: null });
+        if (!document) {
+            return null;
+        }
+
+        const tokens = await this.getTokensByBotIds([botProfileId]);
+        return this.mapBotAccount(document, tokens.get(botProfileId) ?? null);
+    }
+
+    /**
+     * Applies a declaration patch: every present field replaces the stored one, an
+     * empty string clears a text field, `accepts` replaces wholesale. Returns the
+     * account as it reads back, or null for a bot that vanished.
+     */
+    async updateDeclaration(botProfileId: string, patch: BotDeclarationPatch): Promise<BotAccount | null> {
+        const collection = await this.getUsersCollection();
+        const objectId = this.parseObjectId(botProfileId);
+        if (!objectId) {
+            return null;
+        }
+
+        const set: Record<string, string | BotAccepts> = {};
+        const unset: Record<string, ``> = {};
+        for (const [field, value] of Object.entries(patch)) {
+            if (value === ``) {
+                unset[`declaration.${field}`] = ``;
+            } else if (value !== undefined) {
+                set[`declaration.${field}`] = value;
+            }
+        }
+
+        if (Object.keys(set).length > 0 || Object.keys(unset).length > 0) {
+            const update: Document = {};
+            if (Object.keys(set).length > 0) {
+                update.$set = set;
+            }
+            if (Object.keys(unset).length > 0) {
+                update.$unset = unset;
+            }
+
+            await collection.updateOne({ _id: objectId, kind: `bot`, deletedAt: null }, update);
+        }
+
+        return await this.findById(botProfileId);
+    }
+
     async create(ownerProfileId: string, username: string): Promise<BotAccount> {
         const collection = await this.getUsersCollection();
         const now = Date.now();
@@ -238,6 +293,7 @@ export class BotAccountRepository {
             ownerProfileId: document.ownerProfileId ?? null,
             createdAt: document.registeredAt ?? 0,
             tokenRotatedAt,
+            ...(document.declaration ? { declaration: document.declaration } : {}),
         };
     }
 
