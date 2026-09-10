@@ -9,6 +9,7 @@ import {
     zAdminStatsWindow,
     zAdminUserStatsWindow,
     zFinishedGamesPage,
+    zGameTimeControl,
     zIdentifier,
     zLobbyOptions,
     zNormalizedUsername,
@@ -232,3 +233,122 @@ export const zBotAccountTokenResponse = z.object({
 export type BotAccountTokenResponse = z.infer<
     typeof zBotAccountTokenResponse
 >;
+
+/*
+ * The bot play API. Paths, event shapes and error codes are defined by the spec
+ * repository (TimmyBurn2/Hexo-Bot-Api); these schemas mirror it and must not drift.
+ * The `Htttx*` half is the htttx stateless v1-alpha engine exchange, vendored there
+ * from htttx-bot-api@37d2385, and uses axial `q,r` — never HeXO's `x,y`.
+ */
+
+export const zHtttxSide = z.enum([`x`, `o`]);
+export type HtttxSide = z.infer<typeof zHtttxSide>;
+
+export const zHtttxCoord = z.object({
+    q: z.number().int(),
+    r: z.number().int(),
+});
+export type HtttxCoord = z.infer<typeof zHtttxCoord>;
+
+export const zHtttxBoard = z.object({
+    to_move: zHtttxSide,
+    cells: z.array(zHtttxCoord.extend({ p: zHtttxSide })),
+});
+export type HtttxBoard = z.infer<typeof zHtttxBoard>;
+
+export const zHtttxMove = z.object({
+    pieces: z.array(zHtttxCoord).length(2),
+    evaluation: z.looseObject({
+        heuristic: z.number().optional(),
+        win_in: z.number().int().optional(),
+    }).optional(),
+});
+export type HtttxMove = z.infer<typeof zHtttxMove>;
+
+export const zHtttxMoveRequest = z.object({
+    board: zHtttxBoard,
+    time_limit: z.number().nonnegative().optional(),
+    request_id: z.number().int().nonnegative().optional(),
+});
+export type HtttxMoveRequest = z.infer<typeof zHtttxMoveRequest>;
+
+export const zHtttxMoveResponse = z.object({
+    move: zHtttxMove,
+    considerations: z.array(zHtttxMove).optional(),
+    request_id: z.number().int().nonnegative().optional(),
+});
+export type HtttxMoveResponse = z.infer<typeof zHtttxMoveResponse>;
+
+/** `elo` is null for a guest, who has no rating; so is `profileId`. */
+export const zBotPlayer = z.object({
+    profileId: zIdentifier.nullable(),
+    displayName: z.string(),
+    elo: z.number().int().nullable(),
+});
+export type BotPlayer = z.infer<typeof zBotPlayer>;
+
+export const zBotActiveGame = z.object({
+    gameId: z.string(),
+    side: zHtttxSide,
+});
+export type BotActiveGame = z.infer<typeof zBotActiveGame>;
+
+export const zBotAccountInfoResponse = z.object({
+    bot: zBotPlayer,
+    owner: zBotPlayer,
+    activeGames: z.array(zBotActiveGame),
+});
+export type BotAccountInfoResponse = z.infer<typeof zBotAccountInfoResponse>;
+
+/** The spec's closed enum: `draw-agreement` is unreachable, bot games have no draw. */
+export const zBotFinishReason = z.enum([
+    `aborted`,
+    `disconnect`,
+    `surrender`,
+    `timeout`,
+    `terminated`,
+    `six-in-a-row`,
+]);
+export type BotFinishReason = z.infer<typeof zBotFinishReason>;
+
+export const zBotGameStartEvent = z.object({
+    type: z.literal(`gameStart`),
+    gameId: z.string(),
+    side: zHtttxSide,
+    opponent: zBotPlayer,
+    timeControl: zGameTimeControl,
+    rated: z.boolean(),
+});
+export type BotGameStartEvent = z.infer<typeof zBotGameStartEvent>;
+
+export const zBotMoveRequestEvent = z.object({
+    type: z.literal(`moveRequest`),
+    gameId: z.string(),
+    request: zHtttxMoveRequest,
+});
+export type BotMoveRequestEvent = z.infer<typeof zBotMoveRequestEvent>;
+
+export const zBotGameFinishEvent = z.object({
+    type: z.literal(`gameFinish`),
+    gameId: z.string(),
+    winner: zHtttxSide.nullable(),
+    reason: zBotFinishReason,
+});
+export type BotGameFinishEvent = z.infer<typeof zBotGameFinishEvent>;
+
+export const zBotStreamEvent = z.discriminatedUnion(`type`, [
+    zBotGameStartEvent,
+    zBotMoveRequestEvent,
+    zBotGameFinishEvent,
+]);
+export type BotStreamEvent = z.infer<typeof zBotStreamEvent>;
+
+/** Move rejections a bot can act on; anything else is a plain 400. */
+export const zBotMoveErrorCode = z.enum([
+    `not-your-turn`,
+    `occupied`,
+    `out-of-range`,
+    `game-over`,
+    `stale-request`,
+]);
+export type BotMoveErrorCode = z.infer<typeof zBotMoveErrorCode>;
