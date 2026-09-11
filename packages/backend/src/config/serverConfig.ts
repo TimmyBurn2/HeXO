@@ -24,6 +24,9 @@ export class ServerConfig {
     readonly logLevel = process.env.LOG_LEVEL?.trim() || (process.env.NODE_ENV === `production` ? `info` : `debug`);
     readonly prettyLogs = this.parseBoolean(process.env.LOG_PRETTY) ?? process.env.NODE_ENV !== `production`;
     readonly botApiEnabled = this.parseBoolean(process.env.BOT_API_ENABLED) ?? false;
+    /* Challenges are volatile, so their limits are server policy, not persistence. */
+    readonly challengeTtlMs = this.parsePositiveInteger(process.env.CHALLENGE_TTL_MS) ?? 300_000;
+    readonly challengeInboxLimit = this.parsePositiveInteger(process.env.CHALLENGE_INBOX_LIMIT) ?? 10;
 
     toLogObject() {
         return {
@@ -37,6 +40,8 @@ export class ServerConfig {
             logLevel: this.logLevel,
             prettyLogs: this.prettyLogs,
             botApiEnabled: this.botApiEnabled,
+            challengeTtlMs: this.challengeTtlMs,
+            challengeInboxLimit: this.challengeInboxLimit,
         };
     }
 
@@ -77,6 +82,11 @@ export class ServerConfig {
         }
 
         return resolve(value);
+    }
+
+    private parsePositiveInteger(value: string | undefined): number | null {
+        const parsed = Number.parseInt(value?.trim() ?? ``, 10);
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
     }
 
     private parseBoolean(value: string | undefined): boolean | null {

@@ -354,13 +354,6 @@ export const zBotGameFinishEvent = z.object({
 });
 export type BotGameFinishEvent = z.infer<typeof zBotGameFinishEvent>;
 
-export const zBotStreamEvent = z.discriminatedUnion(`type`, [
-    zBotGameStartEvent,
-    zBotMoveRequestEvent,
-    zBotGameFinishEvent,
-]);
-export type BotStreamEvent = z.infer<typeof zBotStreamEvent>;
-
 /** Move rejections a bot can act on; anything else is a plain 400. */
 export const zBotMoveErrorCode = z.enum([
     `not-your-turn`,
@@ -370,3 +363,90 @@ export const zBotMoveErrorCode = z.enum([
     `stale-request`,
 ]);
 export type BotMoveErrorCode = z.infer<typeof zBotMoveErrorCode>;
+
+/** Challenge rejections a bot can act on; anything else is a plain 400. */
+export const zBotChallengeErrorCode = z.enum([
+    `not-a-bot`,
+    `not-open`,
+]);
+export type BotChallengeErrorCode = z.infer<typeof zBotChallengeErrorCode>;
+
+/* The bot challenge API, spec tag Challenge. v1 is bot to bot: the target must be a
+ * bot, and only a target connected with `open=1` under its concurrent-game limit can
+ * be challenged. `firstPlayer` speaks in challenge terms — the challenger is the side
+ * that created it — and the server maps it onto the lobby's host/guest. */
+export const zBotChallengeFirstPlayer = z.enum([`challenger`, `challenged`, `random`]);
+export type BotChallengeFirstPlayer = z.infer<typeof zBotChallengeFirstPlayer>;
+
+export const zBotChallenge = z.object({
+    challengeId: z.string(),
+    challenger: zBotPlayer,
+    destUser: zBotPlayer,
+    timeControl: zGameTimeControl,
+    status: z.enum([`created`, `declined`, `canceled`, `expired`]),
+});
+export type BotChallenge = z.infer<typeof zBotChallenge>;
+
+export const zCreateBotChallengeRequest = z.object({
+    timeControl: zGameTimeControl,
+    firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+});
+export type CreateBotChallengeRequest = z.infer<typeof zCreateBotChallengeRequest>;
+
+export const zBotChallengeCancelReason = z.enum([`canceled`, `expired`]);
+export type BotChallengeCancelReason = z.infer<typeof zBotChallengeCancelReason>;
+
+export const zBotChallengeReceivedEvent = z.object({
+    type: z.literal(`challenge`),
+    challenge: zBotChallenge,
+});
+export type BotChallengeReceivedEvent = z.infer<typeof zBotChallengeReceivedEvent>;
+
+export const zBotChallengeCanceledEvent = z.object({
+    type: z.literal(`challengeCanceled`),
+    challenge: zBotChallenge,
+    reason: zBotChallengeCancelReason,
+});
+export type BotChallengeCanceledEvent = z.infer<typeof zBotChallengeCanceledEvent>;
+
+export const zBotChallengeDeclinedEvent = z.object({
+    type: z.literal(`challengeDeclined`),
+    challenge: zBotChallenge,
+});
+export type BotChallengeDeclinedEvent = z.infer<typeof zBotChallengeDeclinedEvent>;
+
+export const zBotChallengeEvent = z.union([
+    zBotChallengeReceivedEvent,
+    zBotChallengeCanceledEvent,
+    zBotChallengeDeclinedEvent,
+]);
+export type BotChallengeEvent = z.infer<typeof zBotChallengeEvent>;
+
+export const zBotStreamEvent = z.discriminatedUnion(`type`, [
+    zBotGameStartEvent,
+    zBotMoveRequestEvent,
+    zBotGameFinishEvent,
+    zBotChallengeReceivedEvent,
+    zBotChallengeCanceledEvent,
+    zBotChallengeDeclinedEvent,
+]);
+export type BotStreamEvent = z.infer<typeof zBotStreamEvent>;
+
+/* The owner-facing mirror of the challenge API: cookie auth, the website's own
+ * surface rather than the spec's, so it may carry the session id a spectator needs. */
+export const zCreateOwnerBotChallengeRequest = z.object({
+    challengerBotProfileId: zIdentifier,
+    timeControl: zGameTimeControl,
+    firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+});
+export type CreateOwnerBotChallengeRequest = z.infer<typeof zCreateOwnerBotChallengeRequest>;
+
+export const zOwnerBotChallenge = zBotChallenge.extend({
+    sessionId: zSessionId,
+});
+export type OwnerBotChallenge = z.infer<typeof zOwnerBotChallenge>;
+
+export const zOwnerBotChallengesResponse = z.object({
+    challenges: z.array(zOwnerBotChallenge),
+});
+export type OwnerBotChallengesResponse = z.infer<typeof zOwnerBotChallengesResponse>;

@@ -22,10 +22,12 @@ import {
     zAdminUpdateServerSettingsRequest,
     zAdminUpdateUserPermissionsRequest,
     zCreateBotAccountRequest,
+    zCreateBotChallengeRequest,
     zCreateSandboxPositionRequest,
     zCreateTournamentRequest,
     zLobbyFirstPlayer,
     zLobbyVisibility,
+    zBotChallengeFirstPlayer,
     zReorderSeedsRequest,
     zRequestMatchExtensionRequest,
     zResolveExtensionRequest,
@@ -52,6 +54,7 @@ import { BotAuthService } from '../../bots/botAuthService';
 import { BotDirectoryService } from '../../bots/botDirectoryService';
 import { BotMoveError, BotPlayService } from '../../bots/botPlayService';
 import { BotStreamRegistry } from '../../bots/botStreamRegistry';
+import { BotChallengeError, ChallengeService } from '../../bots/challengeService';
 import { ServerConfig } from '../../config/serverConfig';
 import { DevSupportService } from '../../dev/devSupportService';
 import { SandboxPositionService } from '../../sandbox/sandboxPositionService';
@@ -123,6 +126,13 @@ const zGameTimeControlInput = z.union([
 const zCreateBotSessionRequestInput = z.object({
     timeControl: zGameTimeControlInput.optional(),
 });
+/* The website's Challenge dialog: the same floor the Play dialog enforces, plus the
+ * bot that fights on the owner's behalf. */
+const zCreateOwnerBotChallengeRequestInput = z.object({
+    challengerBotProfileId: z.string().min(1),
+    timeControl: zGameTimeControlInput,
+    firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+});
 
 const zCreateSessionRequestInput = z.object({
     lobbyOptions: z.object({
@@ -155,6 +165,7 @@ export class ApiRouter {
         @inject(BotDirectoryService) private readonly botDirectoryService: BotDirectoryService,
         @inject(BotPlayService) private readonly botPlayService: BotPlayService,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
+        @inject(ChallengeService) private readonly challengeService: ChallengeService,
     ) {
         const router = express.Router();
 
@@ -227,6 +238,7 @@ export class ApiRouter {
         if (this.serverConfig.botApiEnabled) {
             /* Subscribing here keeps the flag the only switch: off, nothing listens. */
             this.botStreamRegistry.attach();
+            this.challengeService.attach();
 
             router.get(`/bot/account`, async (req, res) => {
                 await this.handleBotApiRequest(req, res, async (bot) => {
@@ -238,8 +250,9 @@ export class ApiRouter {
                 await this.handleBotApiRequest(req, res, (bot) => {
                     req.socket.setTimeout(0);
                     req.socket.setNoDelay(true);
-                    /* `open=1` is parsed and held; it only bites once challenges ship. */
                     this.botStreamRegistry.open(bot, res, req.query.open === `1`);
+                    /* Pending challenges ride the open-replay, like active games do. */
+                    this.challengeService.replayPending(bot);
                     return Promise.resolve();
                 });
             });
@@ -262,6 +275,47 @@ export class ApiRouter {
                 await this.handleBotApiRequest(req, res, async (bot) => {
                     await this.botPlayService.joinSession(bot, req.params.sessionId);
                     res.json({ ok: true });
+                });
+            });
+
+            router.post(`/bot/challenge/:profileId`, express.json(), async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    let request: z.infer<typeof zCreateBotChallengeRequest>;
+                    try {
+                        request = zCreateBotChallengeRequest.parse(req.body ?? {});
+                    } catch {
+                        res.status(400).json({ error: `The challenge options are not valid.` });
+                        return;
+                    }
+
+                    res.json(await this.challengeService.createChallenge(bot, req.params.profileId, getRequestClientInfo(req), request));
+                });
+            });
+
+            router.post(`/bot/challenge/:challengeId/accept`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.challengeService.acceptChallenge(bot, req.params.challengeId);
+                    res.json({ ok: true });
+                });
+            });
+
+            router.post(`/bot/challenge/:challengeId/decline`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.challengeService.declineChallenge(bot, req.params.challengeId);
+                    res.json({ ok: true });
+                });
+            });
+
+            router.post(`/bot/challenge/:challengeId/cancel`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.challengeService.cancelChallenge(bot, req.params.challengeId);
+                    res.json({ ok: true });
+                });
+            });
+
+            router.get(`/bot/challenges`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    res.json(await this.challengeService.listChallenges(bot));
                 });
             });
 
@@ -302,6 +356,60 @@ export class ApiRouter {
                     }
 
                     throw error;
+                }
+            });
+
+            /* The owner's Challenge button: same service as the bot route, cookie
+             * auth, and a website-shaped answer that carries the session id the owner
+             * spectates from. */
+            router.post(`/bots/:profileId/challenge`, express.json(), async (req, res) => {
+                const user = await this.authService.getUserFromRequest(req);
+                if (!user) {
+                    res.status(401).json({ error: `Sign in to challenge a bot.` });
+                    return;
+                }
+
+                let request: z.infer<typeof zCreateOwnerBotChallengeRequestInput>;
+                try {
+                    request = zCreateOwnerBotChallengeRequestInput.parse(req.body ?? {});
+                } catch {
+                    res.status(400).json({ error: `The challenge options are not valid.` });
+                    return;
+                }
+
+                try {
+                    res.json(await this.challengeService.createChallengeAsOwner(user, req.params.profileId, getRequestClientInfo(req), request));
+                } catch (error: unknown) {
+                    this.sendChallengeSiteError(res, error);
+                }
+            });
+
+            router.get(`/bots/:profileId/challenges`, async (req, res) => {
+                const user = await this.authService.getUserFromRequest(req);
+                if (!user) {
+                    res.status(401).json({ error: `Sign in to challenge a bot.` });
+                    return;
+                }
+
+                try {
+                    res.json({ challenges: await this.challengeService.listChallengesAsOwner(user, req.params.profileId) });
+                } catch (error: unknown) {
+                    this.sendChallengeSiteError(res, error);
+                }
+            });
+
+            router.post(`/bots/:profileId/challenge/:challengeId/cancel`, async (req, res) => {
+                const user = await this.authService.getUserFromRequest(req);
+                if (!user) {
+                    res.status(401).json({ error: `Sign in to challenge a bot.` });
+                    return;
+                }
+
+                try {
+                    await this.challengeService.cancelChallengeAsOwner(user, req.params.profileId, req.params.challengeId);
+                    res.json({ ok: true });
+                } catch (error: unknown) {
+                    this.sendChallengeSiteError(res, error);
                 }
             });
 
@@ -1278,10 +1386,22 @@ export class ApiRouter {
         return user;
     }
 
-    /**
-     * Bot routes answer a bearer token instead of a session cookie, and answer a move
-     * rejection with the contract's machine-readable code.
-     */
+    /** The cookie-auth challenge routes answer like the Play route does: an
+     * ApiRequestError keeps its status, a SessionError becomes a 409. */
+    private sendChallengeSiteError(res: express.Response, error: unknown): void {
+        if (error instanceof ApiRequestError) {
+            res.status(error.statusCode).json({ error: error.message });
+            return;
+        }
+
+        if (error instanceof SessionError) {
+            res.status(409).json({ error: error.message });
+            return;
+        }
+
+        throw error;
+    }
+
     private async handleBotApiRequest(
         req: express.Request,
         res: express.Response,
@@ -1297,6 +1417,11 @@ export class ApiRouter {
             await handle(bot);
         } catch (error: unknown) {
             if (error instanceof BotMoveError) {
+                res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+                return;
+            }
+
+            if (error instanceof BotChallengeError) {
                 res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
                 return;
             }

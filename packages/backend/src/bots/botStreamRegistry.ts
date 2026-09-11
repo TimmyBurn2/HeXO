@@ -98,6 +98,18 @@ export class BotStreamRegistry {
         return this.streams.has(botId);
     }
 
+    /** True while the bot holds a stream opened with `open=1`; it resets when the
+     * stream dies, because the flag lives on the stream entry. */
+    isOpenForChallenges(botId: string): boolean {
+        return this.streams.get(botId)?.openForChallenges ?? false;
+    }
+
+    /** Writes one challenge line; challenges are the only stream writer besides the
+     * game reconcile, so the emit path stays validated in one place. */
+    emitToBot(botId: string, event: BotStreamEvent): void {
+        this.emit(botId, event);
+    }
+
     /** The last request id sent for a game, so a late answer can be spotted. */
     getRequestId(botId: string, sessionId: string): number | null {
         return this.requestIds.get(requestKey(botId, sessionId)) ?? null;

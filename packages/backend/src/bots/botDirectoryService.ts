@@ -43,8 +43,7 @@ export class BotDirectoryService {
                 elo: Math.round(rating.eloScore),
                 owner: account.ownerProfileId,
                 online: this.botStreamRegistry.isOnline(account.id),
-                /* Inert until challenges exist; parsed off the stream, never guessed. */
-                openForChallenges: false,
+                openForChallenges: this.botStreamRegistry.isOpenForChallenges(account.id),
             } satisfies BotListing;
         }));
 

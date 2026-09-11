@@ -11,6 +11,7 @@ import { BotAuthService } from '../bots/botAuthService';
 import { BotDirectoryService } from '../bots/botDirectoryService';
 import { BotPlayService } from '../bots/botPlayService';
 import { BotStreamRegistry } from '../bots/botStreamRegistry';
+import { ChallengeService } from '../bots/challengeService';
 import { ServerConfig } from '../config/serverConfig';
 import { DevSupportService } from '../dev/devSupportService';
 import { EloHandler } from '../elo/eloHandler';
@@ -57,6 +58,7 @@ export function createAppContainer(): DependencyContainer {
     appContainer.registerSingleton(BotAccountService);
     appContainer.registerSingleton(BotAuthService);
     appContainer.registerSingleton(BotDirectoryService);
+    appContainer.registerSingleton(ChallengeService);
     appContainer.registerSingleton(BotPlayService);
     appContainer.registerSingleton(BotStreamRegistry);
     appContainer.registerSingleton(EloRepository);

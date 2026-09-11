@@ -79,6 +79,7 @@ function createFixture(options: { onlineBotIds?: string[], onlineResult?: (callI
     };
     const registry = {
         isOnline,
+        isOpenForChallenges: (id: string) => id === ONLINE_BOT_ID,
         getSocketId: (id: string) => `bot:${id}`,
     };
 
@@ -123,9 +124,10 @@ test(`the roster carries owner, rounded elo and connection state`, async () => {
         elo: 1_500,
         owner: OWNER_PROFILE_ID,
         online: true,
-        openForChallenges: false,
+        openForChallenges: true,
     });
     assert.equal(byId.get(OFFLINE_BOT_ID)?.online, false);
+    assert.equal(byId.get(OFFLINE_BOT_ID)?.openForChallenges, false, `openness rides the stream entry`);
     assert.equal(byId.get(OFFLINE_BOT_ID)?.owner, `owner-2`);
 });
 
