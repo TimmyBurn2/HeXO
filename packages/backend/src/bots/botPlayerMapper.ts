@@ -1,4 +1,4 @@
-import { type BotPlayer } from '@ih3t/shared';
+import { type BotListing, type BotPlayer, type BotAccount } from '@ih3t/shared';
 import { inject, injectable } from 'tsyringe';
 
 import { type AccountUserProfile } from '../auth/authRepository';
@@ -17,6 +17,12 @@ export class BotPlayerMapper {
 
         const rating = await this.eloHandler.getPlayerRating(profile.id);
         return { profileId: profile.id, displayName: profile.username, elo: Math.round(rating.eloScore) };
+    }
+
+    /** A listing always names a real account; the nullable fields are for opponents. */
+    async fromAccount(account: Pick<BotAccount, `id` | `username`>): Promise<Omit<BotListing, `owner` | `online` | `openForChallenges`>> {
+        const rating = await this.eloHandler.getPlayerRating(account.id);
+        return { profileId: account.id, displayName: account.username, elo: Math.round(rating.eloScore) };
     }
 
     fromSeat(player: ServerSessionPlayer | undefined): BotPlayer {

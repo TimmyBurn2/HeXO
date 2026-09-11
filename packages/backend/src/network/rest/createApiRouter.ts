@@ -52,6 +52,7 @@ import { type AccountUserProfile, AuthRepository } from '../../auth/authReposito
 import { AuthService } from '../../auth/authService';
 import { BotAccountService, MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
 import { BotAuthService } from '../../bots/botAuthService';
+import { BotDirectoryService } from '../../bots/botDirectoryService';
 import { BotMoveError, BotPlayService } from '../../bots/botPlayService';
 import { BotStreamRegistry } from '../../bots/botStreamRegistry';
 import { HouseBotService } from '../../bots/houseBotService';
@@ -123,6 +124,10 @@ const zGameTimeControlInput = z.union([
         mode: z.literal(`unlimited`),
     }),
 ]);
+const zCreateBotSessionRequestInput = z.object({
+    timeControl: zGameTimeControlInput.optional(),
+});
+
 const zCreateSessionRequestInput = z.object({
     lobbyOptions: z.object({
         visibility: zLobbyVisibility.optional(),
@@ -155,6 +160,7 @@ export class ApiRouter {
         @inject(ServerConfig) private readonly serverConfig: ServerConfig,
         @inject(BotAccountService) private readonly botAccountService: BotAccountService,
         @inject(BotAuthService) private readonly botAuthService: BotAuthService,
+        @inject(BotDirectoryService) private readonly botDirectoryService: BotDirectoryService,
         @inject(BotPlayService) private readonly botPlayService: BotPlayService,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
         @inject(HouseBotService) private readonly houseBotService: HouseBotService,
@@ -295,6 +301,29 @@ export class ApiRouter {
                     await this.botPlayService.joinSession(bot, req.params.sessionId);
                     res.json({ ok: true });
                 });
+            });
+
+            /* The public roster and the website's Play button: human-facing, so cookie
+             * auth rather than a bot token, and the same flag as the bot API. */
+            router.get(`/bots`, async (req, res) => {
+                res.json(await this.botDirectoryService.listBots(req.query.online === `1`));
+            });
+
+            router.post(`/bots/:profileId/session`, express.json(), async (req, res) => {
+                const user = await this.authService.getUserFromRequest(req);
+                if (!user) {
+                    res.status(401).json({ error: `Sign in to play a bot.` });
+                    return;
+                }
+
+                try {
+                    const request = zCreateBotSessionRequestInput.parse(req.body ?? {});
+                    res.json(await this.botDirectoryService.createBotSession(user, req.params.profileId, getRequestClientInfo(req), {
+                        timeControl: request.timeControl ?? { ...DEFAULT_LOBBY_OPTIONS.timeControl },
+                    }));
+                } catch (error: unknown) {
+                    this.sendBotSiteError(res, error);
+                }
             });
 
             router.get(`/account/bots`, async (req, res) => {
@@ -1315,6 +1344,35 @@ export class ApiRouter {
 
             throw error;
         }
+    }
+
+    /** The website-facing bot routes' error shape: their own status codes, invalid
+     * bodies as the app's ZodError shape, session conflicts as 409, anything else
+     * rethrown to the app's handler. */
+    private sendBotSiteError(res: express.Response, error: unknown): void {
+        if (error instanceof ApiRequestError) {
+            res.status(error.statusCode).json({ error: error.message });
+            return;
+        }
+
+        if (error instanceof SessionError) {
+            res.status(409).json({ error: error.message });
+            return;
+        }
+
+        if (error instanceof z.ZodError) {
+            const friendlyMessage = error.issues
+                .map((issue) => {
+                    const field = issue.path.length > 0 ? issue.path.join(`.`) : `input`;
+                    return `${field}: ${issue.message}`;
+                })
+                .join(`; `);
+
+            res.status(400).json({ error: friendlyMessage, issues: error.issues });
+            return;
+        }
+
+        throw error;
     }
 
     private async handleBotAccountRequest(
