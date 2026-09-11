@@ -91,7 +91,7 @@ export class BotPlayService {
             { sessionManager: this.sessionManager, presence: this.botStreamRegistry },
             session,
             bot,
-            (botProfileId) => this.countActiveSessions(botProfileId),
+            (botProfileId) => this.sessionManager.countActivePlayerSessionsByProfileId(botProfileId),
             {
                 offline: () => new ApiRequestError(400, `Hold your stream open to join a game.`),
                 capReached: () => new ApiRequestError(400, `A bot can play at most ${MAX_CONCURRENT_GAMES_PER_BOT} games at once.`),
@@ -237,11 +237,4 @@ export class BotPlayService {
                 : []);
     }
 
-    /** The cap counts lobbies too: refusing only once a game starts is refusing too late. */
-    private countActiveSessions(botProfileId: string): number {
-        return this.sessionManager.getPlayerParticipationsByProfileId(botProfileId)
-            .filter((participation) => participation.role === `player`
-                && participation.session.state !== `finished`)
-            .length;
-    }
 }
