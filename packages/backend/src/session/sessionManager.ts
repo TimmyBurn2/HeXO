@@ -101,6 +101,12 @@ export type RematchCreateResult = {
 export const MAX_PLAYERS_PER_SESSION = 2;
 const MAX_SESSION_CHAT_MESSAGES = 100;
 
+/* A reserved lobby whose human seat never fills is abandoned after this long. The
+ * bot's seat is "connected" from the moment it is claimed, so without this rule the
+ * empty-lobby cleanup can never reap it and every abandoned play pins one of the
+ * bot's concurrent-game slots forever. */
+export const RESERVED_LOBBY_ABANDONED_AFTER_MS = 60_000;
+
 @injectable()
 export class SessionManager {
     private eventHandlers: SessionManagerEventHandlers = {};
@@ -1177,6 +1183,17 @@ export class SessionManager {
 
         switch (session.state) {
             case `lobby`: {
+                if (
+                    session.tournament === null
+                    && session.reservedPlayerProfileIds.length > 0
+                    && session.players.length > 0
+                    && session.players.every((player) => player.isBot)
+                    && Date.now() - session.createdAt >= RESERVED_LOBBY_ABANDONED_AFTER_MS
+                ) {
+                    this.deleteSession(session, `reserved-abandoned`);
+                    break;
+                }
+
                 /* time out players which could not connect within a certain given time */
                 let playersUpdated = false;
                 session.players = session.players.filter((player) => {
@@ -1720,6 +1737,13 @@ export class SessionManager {
         return participations;
     }
 
+    /** Lobbies count too: refusing only once a game starts is refusing too late. */
+    countActivePlayerSessionsByProfileId(profileId: string): number {
+        return this.getPlayerParticipationsByProfileId(profileId)
+            .filter((participation) => participation.session.state !== `finished`)
+            .length;
+    }
+
     getParticipationsBySocketId(
         socketId: string,
     ): ServerSessionParticipation[] {
@@ -1967,6 +1991,7 @@ export class SessionManager {
                 displayName: player.displayName,
                 profileId: player.profileId,
                 elo: player.rating.eloScore,
+                isBot: player.isBot,
             })),
 
             timeControl: { ...session.gameOptions.timeControl },
@@ -2005,6 +2030,7 @@ export class SessionManager {
             profileId: player.profileId ?? player.id,
             elo: player.rating?.eloScore ?? null,
             eloChange: null,
+            isBot: player.isBot,
         }));
     }
 

@@ -155,11 +155,13 @@ const liveGame: LobbyInfo = {
       displayName: account.username,
       profileId: account.id,
       elo: 1742,
+      isBot: false,
     },
     {
       displayName: 'Live Opponent',
       profileId: 'profile-live-2',
       elo: 1761,
+      isBot: false,
     },
   ],
   timeControl: {
