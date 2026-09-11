@@ -996,5 +996,20 @@
   "botTokenShownOnce": "请立即复制此令牌，它不会再次显示：",
   "botAccount": "机器人",
   "botAccountsUnavailable": "无法加载机器人账户。",
-  "botTokenIssued": "令牌签发于 {{date}}"
+  "botTokenIssued": "令牌签发于 {{date}}",
+  "botRoster": "机器人",
+  "botRosterDescription": "连接到此服务器的机器人。选择一个对战，或带上你自己的。",
+  "noBotsYet": "还没有注册的机器人。",
+  "botsUnavailable": "无法加载机器人列表。",
+  "botOwner": "所有者",
+  "botOnline": "在线",
+  "botOffline": "离线",
+  "botOfflineHint": "该机器人未连接。",
+  "playABot": "与机器人对战",
+  "playBot": "对战",
+  "humanOpponent": "人类对手",
+  "anyoneWhoFindsThisLobby": "任何找到这个大厅的人。",
+  "yourBotJoinsTheOtherSeat": "你的机器人坐在另一个座位上。",
+  "botGameNote": "与机器人的对局不计分、保持私密，先手随机决定。",
+  "loadingBots": "正在加载机器人…"
 }

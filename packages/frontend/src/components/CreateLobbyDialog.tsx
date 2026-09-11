@@ -1,16 +1,20 @@
 import { Button } from '@/components/ui/button';
-import type { AccountProfile, CreateSessionRequest, GameTimeControl, LobbyFirstPlayer, LobbyVisibility } from '@ih3t/shared';
+import type { AccountProfile, BotAccount, CreateSessionRequest, LobbyFirstPlayer, LobbyVisibility } from '@ih3t/shared';
 import type { TFunction } from 'i18next';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import BotBadge from './BotBadge';
 import TimeControlSelector from './TimeControlSelector';
+import { SelectableOptions, useLobbyTimeControl } from './lobbyOptionsShared';
 import { useTranslation } from 'react-i18next'
 
 type CreateLobbyDialogProps = {
     isOpen: boolean
     onClose: () => void
     account: AccountProfile | null
-    onCreateLobby: (request: CreateSessionRequest) => void
+    /** The signed-in player's bots; null while the flag is off hides the entry. */
+    ownBots?: BotAccount[] | null
+    onCreateLobby: (request: CreateSessionRequest, botProfileId?: string) => void
 };
 
 type LocalizedOption<T> = {
@@ -50,62 +54,22 @@ const firstPlayerOptions: LocalizedOption<LobbyFirstPlayer>[] = [
     },
 ];
 
-const TURN_TIME_STEP_SECONDS = [
-    5, 10, 15, 20, 30, 45, 60, 90, 120,
-] as const;
-const TURN_TIME_DEFAULT = 45;
-
-const MATCH_TIME_STEP_MINUTES = [
-    1, 2, 3, 4, 5, 10, 15, 20, 30, 45, 60,
-] as const;
-const MATCH_TIME_DEFAULT = 5;
-
-const INCREMENT_STEP_SECONDS = [
-    0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300,
-] as const;
-const INCREMENT_DEFAULT = 5;
-
-function SelectableOptions({ onClick, selected, title, description, disabled = false }: Readonly<{ onClick: () => void, selected: boolean, title: string, description: string, disabled?: boolean }>) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={`flex flex-col items-start rounded-[0.9rem] border p-3 text-left transition ${selected
-                ? `border-sky-300/35 bg-sky-300/10 shadow-[0_8px_18px_rgba(14,165,233,0.1)]`
-                : disabled
-                    ? `cursor-not-allowed border-white/8 bg-white/4 opacity-60`
-                    : `border-white/10 bg-white/6 hover:border-white/20 hover:bg-white/10`
-                }`}
-        >
-            <div className="flex flex-row items-center text-sm font-bold text-white">
-                <span className={`mr-2 inline-block h-3.5 w-3.5 align-sub rounded-full border ${selected ? `border-sky-200 bg-sky-300` : `border-white/20 bg-slate-900/40`}`} />
-                {title}
-            </div>
-
-            <div className="mt-1 text-[11px] leading-4.5 text-slate-300">
-                {description}
-            </div>
-        </button>
-    );
-}
-
 function CreateLobbyDialog({
     isOpen,
     onClose,
     account,
+    ownBots = null,
     onCreateLobby,
 }: Readonly<CreateLobbyDialogProps>) {
     const { t } = useTranslation()
     const canCreateRatedLobby = Boolean(account);
     const [visibility, setVisibility] = useState<LobbyVisibility>(`public`);
-    const [timeControlMode, setTimeControlMode] = useState<GameTimeControl[`mode`]>(`match`);
     const [rated, setRated] = useState(canCreateRatedLobby);
     const [firstPlayer, setFirstPlayer] = useState<LobbyFirstPlayer>(`random`);
+    const [botProfileId, setBotProfileId] = useState<string | null>(null);
     const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-    const [turnTimeStepIndex, setTurnTimeStepIndex] = useState(TURN_TIME_STEP_SECONDS.indexOf(TURN_TIME_DEFAULT));
-    const [matchTimeStepIndex, setMatchTimeStepIndex] = useState(MATCH_TIME_STEP_MINUTES.indexOf(MATCH_TIME_DEFAULT));
-    const [incrementStepIndex, setIncrementStepIndex] = useState(INCREMENT_STEP_SECONDS.indexOf(INCREMENT_DEFAULT));
+    const timeControl = useLobbyTimeControl();
+    const selectedBot = ownBots?.find((bot) => bot.id === botProfileId) ?? null;
 
     useEffect(() => {
         setRated(canCreateRatedLobby);
@@ -114,38 +78,15 @@ function CreateLobbyDialog({
     useEffect(() => {
         if (isOpen) {
             setShowAdvancedOptions(false);
+            setBotProfileId(null);
         }
     }, [isOpen]);
 
-    const turnTimeSeconds = TURN_TIME_STEP_SECONDS[turnTimeStepIndex];
-    const matchTimeMinutes = MATCH_TIME_STEP_MINUTES[matchTimeStepIndex];
-    const incrementSeconds = INCREMENT_STEP_SECONDS[incrementStepIndex];
-
-    const selectedTimeControl = useMemo<GameTimeControl>(() => {
-        if (timeControlMode === `turn`) {
-            return {
-                mode: `turn`,
-                turnTimeMs: turnTimeSeconds * 1000,
-            };
-        }
-
-        if (timeControlMode === `match`) {
-            return {
-                mode: `match`,
-                mainTimeMs: matchTimeMinutes * 60 * 1000,
-                incrementMs: incrementSeconds * 1000,
-            };
-        }
-
-        return {
-            mode: `unlimited`,
-        };
-    }, [
-        incrementSeconds, matchTimeMinutes, timeControlMode, turnTimeSeconds,
-    ]);
-
     const selectedFirstPlayer = firstPlayerOptions.find((option) => option.value === firstPlayer) ?? firstPlayerOptions[0];
     const firstPlayerTitle = selectedFirstPlayer.title(t);
+    /* A bot seat is never rated — the server enforces it; the dialog just stops
+     * offering a choice it would not honour. */
+    const isRated = selectedBot ? false : rated;
 
     if (!isOpen) {
         return null;
@@ -155,17 +96,17 @@ function CreateLobbyDialog({
         onCreateLobby({
             lobbyOptions: {
                 visibility,
-                timeControl: selectedTimeControl,
-                rated,
+                timeControl: timeControl.selectedTimeControl,
+                rated: isRated,
                 firstPlayer,
             },
-        });
+        }, botProfileId ?? undefined);
     };
 
     const badges = [
-        rated ? t('rated', 'Rated') : t('casual', 'Casual'),
-        visibility === `private` ? t('private', 'Private') : t('public', 'Public'),
-        firstPlayerTitle
+        isRated ? t('rated', 'Rated') : t('casual', 'Casual'),
+        selectedBot ? t('private', 'Private') : visibility === `private` ? t('private', 'Private') : t('public', 'Public'),
+        selectedBot ? t('random', 'Random') : firstPlayerTitle
     ]
 
     return (
@@ -214,27 +155,28 @@ function CreateLobbyDialog({
                                     </div>
 
                                     <TimeControlSelector
-                                        mode={timeControlMode}
-                                        selectedTimeControl={selectedTimeControl}
-                                        turnTimeSeconds={turnTimeSeconds}
-                                        matchTimeMinutes={matchTimeMinutes}
-                                        incrementSeconds={incrementSeconds}
-                                        turnTimeStepCount={TURN_TIME_STEP_SECONDS.length}
-                                        matchTimeStepCount={MATCH_TIME_STEP_MINUTES.length}
-                                        incrementStepCount={INCREMENT_STEP_SECONDS.length}
-                                        turnTimeStepIndex={turnTimeStepIndex}
-                                        matchTimeStepIndex={matchTimeStepIndex}
-                                        incrementStepIndex={incrementStepIndex}
-                                        onModeChange={setTimeControlMode}
-                                        onTurnTimeStepIndexChange={setTurnTimeStepIndex}
-                                        onMatchTimeStepIndexChange={setMatchTimeStepIndex}
-                                        onIncrementStepIndexChange={setIncrementStepIndex}
+                                        mode={timeControl.mode}
+                                        selectedTimeControl={timeControl.selectedTimeControl}
+                                        turnTimeSeconds={timeControl.turnTimeSeconds}
+                                        matchTimeMinutes={timeControl.matchTimeMinutes}
+                                        incrementSeconds={timeControl.incrementSeconds}
+                                        turnTimeStepCount={timeControl.turnTimeStepCount}
+                                        matchTimeStepCount={timeControl.matchTimeStepCount}
+                                        incrementStepCount={timeControl.incrementStepCount}
+                                        turnTimeStepIndex={timeControl.turnTimeStepIndex}
+                                        matchTimeStepIndex={timeControl.matchTimeStepIndex}
+                                        incrementStepIndex={timeControl.incrementStepIndex}
+                                        onModeChange={timeControl.setMode}
+                                        onTurnTimeStepIndexChange={timeControl.setTurnTimeStepIndex}
+                                        onMatchTimeStepIndexChange={timeControl.setMatchTimeStepIndex}
+                                        onIncrementStepIndexChange={timeControl.setIncrementStepIndex}
                                     />
                                 </section>
                             )}
 
                             {showAdvancedOptions && (
                                 <>
+                                    {!selectedBot && (
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -275,7 +217,48 @@ function CreateLobbyDialog({
                                             </div>
                                         )}
                                     </section>
+                                    )}
 
+                                    {ownBots && ownBots.length > 0 && (
+                                        <section className="p-0">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                                                    {t('opponent', 'Opponent')}
+                                                </div>
+
+                                                <div className="flex items-center gap-2 rounded-full bg-white/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                                    {selectedBot ? (
+                                                        <>
+                                                            {selectedBot.username}
+                                                            <BotBadge />
+                                                        </>
+                                                    ) : t('humanOpponent', 'Human opponent')}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-2.5 grid gap-2 md:grid-cols-3">
+                                                <SelectableOptions
+                                                    onClick={() => setBotProfileId(null)}
+                                                    selected={!selectedBot}
+                                                    title={t('humanOpponent', 'Human opponent')}
+                                                    description={t('anyoneWhoFindsThisLobby', 'Anyone who finds this lobby.')}
+                                                />
+
+                                                {ownBots.map((bot) => (
+                                                    <SelectableOptions
+                                                        key={bot.id}
+                                                        onClick={() => setBotProfileId(bot.id)}
+                                                        selected={selectedBot?.id === bot.id}
+                                                        title={bot.username}
+                                                        description={t('yourBotJoinsTheOtherSeat', 'Your bot takes the other seat.')}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    {!selectedBot && (
+                                    <>
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -337,25 +320,32 @@ function CreateLobbyDialog({
                                             })}
                                         </div>
                                     </section>
+                                    </>
+                                    )}
 
+                                    {selectedBot && (
+                                        <div className="rounded-[0.9rem] border border-white/8 bg-white/4 px-3 py-2.5 text-xs leading-5 text-slate-300">
+                                            {t('botGameNote', 'Games against a bot are unrated, private, and the first player is chosen at random.')}
+                                        </div>
+                                    )}
 
                                     <section>
                                         <TimeControlSelector
-                                            mode={timeControlMode}
-                                            selectedTimeControl={selectedTimeControl}
-                                            turnTimeSeconds={turnTimeSeconds}
-                                            matchTimeMinutes={matchTimeMinutes}
-                                            incrementSeconds={incrementSeconds}
-                                            turnTimeStepCount={TURN_TIME_STEP_SECONDS.length}
-                                            matchTimeStepCount={MATCH_TIME_STEP_MINUTES.length}
-                                            incrementStepCount={INCREMENT_STEP_SECONDS.length}
-                                            turnTimeStepIndex={turnTimeStepIndex}
-                                            matchTimeStepIndex={matchTimeStepIndex}
-                                            incrementStepIndex={incrementStepIndex}
-                                            onModeChange={setTimeControlMode}
-                                            onTurnTimeStepIndexChange={setTurnTimeStepIndex}
-                                            onMatchTimeStepIndexChange={setMatchTimeStepIndex}
-                                            onIncrementStepIndexChange={setIncrementStepIndex}
+                                            mode={timeControl.mode}
+                                            selectedTimeControl={timeControl.selectedTimeControl}
+                                            turnTimeSeconds={timeControl.turnTimeSeconds}
+                                            matchTimeMinutes={timeControl.matchTimeMinutes}
+                                            incrementSeconds={timeControl.incrementSeconds}
+                                            turnTimeStepCount={timeControl.turnTimeStepCount}
+                                            matchTimeStepCount={timeControl.matchTimeStepCount}
+                                            incrementStepCount={timeControl.incrementStepCount}
+                                            turnTimeStepIndex={timeControl.turnTimeStepIndex}
+                                            matchTimeStepIndex={timeControl.matchTimeStepIndex}
+                                            incrementStepIndex={timeControl.incrementStepIndex}
+                                            onModeChange={timeControl.setMode}
+                                            onTurnTimeStepIndexChange={timeControl.setTurnTimeStepIndex}
+                                            onMatchTimeStepIndexChange={timeControl.setMatchTimeStepIndex}
+                                            onIncrementStepIndexChange={timeControl.setIncrementStepIndex}
                                         />
                                     </section>
                                 </>

@@ -8,6 +8,7 @@ import { openReplayRouterMiddleware } from './openReplayRouterMiddleware';
 import AccountPreferencesRoute from './routes/AccountPreferencesRoute';
 import AdminControlsRoute from './routes/AdminControlsRoute';
 import AdminRoute from './routes/AdminRoute';
+import BotsRoute from './routes/BotsRoute';
 import ChangelogRoute from './routes/ChangelogRoute';
 import FinishedGameRoute from './routes/FinishedGameRoute';
 import FinishedGamesRoute from './routes/FinishedGamesRoute';
@@ -56,6 +57,7 @@ function createAppRoutesInternal(trackPageViews: boolean) {
             >
                 <Route element={<CommonPageLayout limitWidth={true} />}>
                     <Route path="/" element={<LobbyRoute />} />
+                    <Route path="/bots" element={<BotsRoute />} />
                     <Route path="/games" element={<FinishedGamesRoute />} />
                     <Route path="/games/:gameId" element={<FinishedGameRoute />} />
                     <Route path="/changelog" element={<ChangelogRoute />} />

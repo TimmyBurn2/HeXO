@@ -996,5 +996,20 @@
   "botTokenShownOnce": "이 토큰을 지금 복사하세요. 다시 표시되지 않습니다:",
   "botAccount": "봇",
   "botAccountsUnavailable": "봇 계정을 불러올 수 없습니다.",
-  "botTokenIssued": "{{date}}에 발급된 토큰"
+  "botTokenIssued": "{{date}}에 발급된 토큰",
+  "botRoster": "봇",
+  "botRosterDescription": "이 서버에 연결된 봇입니다. 하나를 선택해 대국하거나 직접 만들어 보세요.",
+  "noBotsYet": "아직 등록된 봇이 없습니다.",
+  "botsUnavailable": "봇 목록을 불러올 수 없습니다.",
+  "botOwner": "소유자",
+  "botOnline": "온라인",
+  "botOffline": "오프라인",
+  "botOfflineHint": "이 봇은 연결되어 있지 않습니다.",
+  "playABot": "봇과 대국하기",
+  "playBot": "대국",
+  "humanOpponent": "사람 상대",
+  "anyoneWhoFindsThisLobby": "이 로비를 발견한 누구나.",
+  "yourBotJoinsTheOtherSeat": "내 봇이 반대편 자리에 앉습니다.",
+  "botGameNote": "봇과의 대국은 무레이팅이며 비공개이고, 선공은 무작위로 정해집니다.",
+  "loadingBots": "봇을 불러오는 중…"
 }

@@ -996,5 +996,20 @@
   "botTokenShownOnce": "Kopiere diesen Token jetzt, er wird nicht erneut angezeigt:",
   "botAccount": "Bot",
   "botAccountsUnavailable": "Bot-Konten konnten nicht geladen werden.",
-  "botTokenIssued": "Token ausgestellt am {{date}}"
+  "botTokenIssued": "Token ausgestellt am {{date}}",
+  "botRoster": "Bots",
+  "botRosterDescription": "Mit diesem Server verbundene Bots. Spiele gegen einen oder bring deinen eigenen mit.",
+  "noBotsYet": "Es sind noch keine Bots registriert.",
+  "botsUnavailable": "Die Bot-Liste konnte nicht geladen werden.",
+  "botOwner": "Besitzer",
+  "botOnline": "Online",
+  "botOffline": "Offline",
+  "botOfflineHint": "Dieser Bot ist nicht verbunden.",
+  "playABot": "Gegen einen Bot spielen",
+  "playBot": "Spielen",
+  "humanOpponent": "Menschlicher Gegner",
+  "anyoneWhoFindsThisLobby": "Jeder, der diese Lobby findet.",
+  "yourBotJoinsTheOtherSeat": "Dein Bot nimmt den anderen Platz ein.",
+  "botGameNote": "Partien gegen einen Bot sind ungewertet, privat, und der beginnende Spieler wird zufällig gewählt.",
+  "loadingBots": "Bots werden geladen…"
 }

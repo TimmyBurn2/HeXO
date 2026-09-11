@@ -1,4 +1,4 @@
-import type { AccountProfile, CreateSessionRequest } from '@ih3t/shared'
+import type { AccountProfile, BotAccount, CreateSessionRequest } from '@ih3t/shared'
 import { expect, test } from '@playwright/experimental-ct-react'
 import CreateLobbyDialog from './CreateLobbyDialog'
 
@@ -98,6 +98,58 @@ test('submits a rated private turn-based lobby for authenticated players', async
       firstPlayer: 'guest',
     },
   })
+})
+
+const ownBot: BotAccount = {
+  id: 'bot-1',
+  username: 'Strix',
+  image: null,
+  ownerProfileId: 'account-1',
+  createdAt: 1_700_000_000_000,
+  tokenRotatedAt: null,
+}
+
+test('submits an unrated lobby when the opponent is one of your bots', async ({ mount }) => {
+  let createRequest: CreateSessionRequest | null = null
+  let botProfileId: string | undefined
+
+  const component = await mount(
+    <CreateLobbyDialog
+      isOpen
+      onClose={() => { }}
+      account={authenticatedAccount}
+      ownBots={[ownBot]}
+      onCreateLobby={(request, botId) => {
+        createRequest = request
+        botProfileId = botId
+      }}
+    />
+  )
+
+  /* The locale files do not load in the component-test harness on every machine,
+   * so the selectors below work with the inline fallbacks too. */
+  await component.getByRole('button', { name: /Customize Match|Advanced Settings/i }).click()
+  await component.getByRole('button', { name: /Strix/i }).click()
+
+  /* The mode picker is gone: a bot seat is never rated, so it is not offered. */
+  await expect(component.getByText(/Rated game with ELO/i)).toHaveCount(0)
+  await expect(component.getByText(/Casual unrated game/i)).toHaveCount(0)
+
+  await component.getByRole('button', { name: /Create Lobby/i }).click()
+
+  expect(createRequest).toEqual({
+    lobbyOptions: {
+      visibility: 'public',
+      timeControl: {
+        mode: 'match',
+        mainTimeMs: 5 * 60 * 1000,
+        incrementMs: 5 * 1000,
+      },
+      rated: false,
+      firstPlayer: 'random',
+    },
+  })
+  expect(botProfileId).toBe('bot-1')
 })
 
 test('matches the authenticated lobby dialog screenshot', async ({ mount }) => {

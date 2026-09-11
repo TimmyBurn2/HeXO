@@ -996,5 +996,20 @@
   "botTokenShownOnce": "Copy this token now, it is not shown again:",
   "botAccount": "Bot",
   "botAccountsUnavailable": "Bot accounts could not be loaded.",
-  "botTokenIssued": "Token issued {{date}}"
+  "botTokenIssued": "Token issued {{date}}",
+  "botRoster": "Bots",
+  "botRosterDescription": "Bots connected to this server. Play one, or bring your own.",
+  "noBotsYet": "No bots are registered yet.",
+  "botsUnavailable": "The bot roster could not be loaded.",
+  "botOwner": "Owner",
+  "botOnline": "Online",
+  "botOffline": "Offline",
+  "botOfflineHint": "This bot is not connected.",
+  "playABot": "Play a Bot",
+  "playBot": "Play",
+  "humanOpponent": "Human opponent",
+  "anyoneWhoFindsThisLobby": "Anyone who finds this lobby.",
+  "yourBotJoinsTheOtherSeat": "Your bot takes the other seat.",
+  "botGameNote": "Games against a bot are unrated, private, and the first player is chosen at random.",
+  "loadingBots": "Loading bots…"
 }

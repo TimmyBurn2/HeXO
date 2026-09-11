@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import type { AccountProfile, CreateSessionRequest, LobbyInfo, ShutdownState } from '@ih3t/shared';
+import type { AccountProfile, BotAccount, CreateSessionRequest, LobbyInfo, ShutdownState } from '@ih3t/shared';
 import { useState } from 'react';
 
 import { useHydratedDelay } from '../useHydratedDelay';
@@ -17,7 +17,8 @@ type LobbyScreenProps = {
     isAccountLoading: boolean
     liveSessions: LobbyInfo[]
     unreadChangelogEntries: number
-    onHostGame: (request: CreateSessionRequest) => void
+    ownBots?: BotAccount[] | null
+    onHostGame: (request: CreateSessionRequest, botProfileId?: string) => void
     onJoinGame: (sessionId: string) => void
     onOpenSandbox: () => void
     onViewFinishedGames: () => void
@@ -42,6 +43,7 @@ function LobbyScreen({
     account,
     liveSessions,
     unreadChangelogEntries,
+    ownBots = null,
     onHostGame,
     onJoinGame,
     onViewChangelog,
@@ -56,6 +58,7 @@ function LobbyScreen({
                 isOpen={isCreateLobbyDialogOpen}
                 onClose={() => setIsCreateLobbyDialogOpen(false)}
                 account={account}
+                ownBots={ownBots}
                 onCreateLobby={onHostGame}
             />
 
