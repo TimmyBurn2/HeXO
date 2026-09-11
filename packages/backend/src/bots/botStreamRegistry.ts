@@ -106,6 +106,12 @@ export class BotStreamRegistry implements BotSeatDriver {
         return this.streams.get(botId)?.openForChallenges ?? false;
     }
 
+    /** Writes one challenge line; challenges are the only stream writer besides the
+     * game reconcile, so the emit path stays validated in one place. */
+    emitToBot(botId: string, event: BotStreamEvent): void {
+        this.emit(botId, event);
+    }
+
     /** The last request id sent for a game, so a late answer can be spotted. */
     getRequestId(botId: string, sessionId: string): number | null {
         return this.requestIds.get(requestKey(botId, sessionId)) ?? null;
