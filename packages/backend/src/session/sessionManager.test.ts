@@ -180,3 +180,53 @@ test(`a subscriber that throws does not break the game it watches`, async () => 
 
     assert.equal(session.gameState.cells.length, 1);
 });
+
+test(`a turn placed through placeCells applies both stones`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+
+    await sessionManager.placeCell(session, HOST, { x: 0, y: 0 });
+    await sessionManager.placeCells(session, GUEST, [{ x: 1, y: 0 }, { x: 0, y: 1 }]);
+
+    assert.equal(session.gameState.cells.length, 3);
+    assert.equal(session.gameState.currentTurnPlayerId, HOST);
+});
+
+test(`placeCells applies nothing when the second placement is illegal`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+
+    await sessionManager.placeCell(session, HOST, { x: 0, y: 0 });
+    await assert.rejects(
+        () => sessionManager.placeCells(session, GUEST, [{ x: 1, y: 0 }, { x: 0, y: 0 }]),
+        /occupied/i,
+    );
+
+    /* The half turn must not be reachable: the first stone is not on the board. */
+    assert.equal(session.gameState.cells.length, 1);
+    assert.equal(session.gameState.currentTurnPlayerId, GUEST);
+    assert.equal(session.gameState.placementsRemaining, 2);
+});
+
+test(`placeCells refuses a turn that is not the caller's`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+
+    await assert.rejects(
+        () => sessionManager.placeCells(session, GUEST, [{ x: 0, y: 0 }, { x: 1, y: 0 }]),
+        /not your turn/i,
+    );
+    assert.equal(session.gameState.cells.length, 0);
+});
+
+test(`placeCells applies nothing once the turn clock has run out`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+    await sessionManager.placeCell(session, HOST, { x: 0, y: 0 });
+    session.currentTurnExpiresAt = Date.now() - 1;
+
+    await assert.rejects(
+        () => sessionManager.placeCells(session, GUEST, [{ x: 1, y: 0 }, { x: 0, y: 1 }]),
+    );
+    assert.equal(session.gameState.cells.length, 1);
+});
