@@ -196,6 +196,22 @@ export class SessionManager {
         });
     }
 
+    /**
+     * Removes a lobby that will never start — a declined or expired challenge.
+     * The lock plus the lobby-state check race it against an accept: whoever wins
+     * the lock decides, the loser finds either a started game or no session.
+     */
+    async deleteLobby(session: ServerGameSession, reason: string): Promise<boolean> {
+        return await session.lock.runExclusive(() => {
+            if (this.sessions.get(session.id) !== session || session.state !== `lobby`) {
+                return false;
+            }
+
+            this.deleteSession(session, reason);
+            return true;
+        });
+    }
+
     getTerminalSessionStatuses(now = Date.now()): TerminalSessionStatus[] {
         return this.listStoredSessions().map((session) => ({
             sessionId: session.id,
@@ -274,6 +290,7 @@ export class SessionManager {
         const sessionId = this.createSessionId();
         const session = createGameSession(sessionId, params.lobbyOptions, {
             reservedPlayerProfileIds: params.reservedPlayerProfileIds,
+            pendingChallengeId: params.pendingChallengeId,
             tournament: params.tournament ?? null,
         });
 
@@ -1314,6 +1331,9 @@ export class SessionManager {
 
                 session.gameId = gameId;
                 session.state = `in-game`;
+                /* The challenge was answered the moment its lobby started; nothing
+                 * may read the marker once the session is a game. */
+                session.pendingChallengeId = null;
                 session.startedAt = startedAt;
                 session.finishReason = null;
                 session.abortedByPlayerId = null;
@@ -1819,10 +1839,15 @@ export class SessionManager {
         return participations;
     }
 
-    /** Lobbies count too: refusing only once a game starts is refusing too late. */
+    /** Lobbies count too: refusing only once a game starts is refusing too late. A
+     * pending challenge does not count — its seat becomes a real game only when the
+     * target accepts, and the challenger should not spend slots on offers. */
     countActivePlayerSessionsByProfileId(profileId: string): number {
         return this.getPlayerParticipationsByProfileId(profileId)
             .filter((participation) => participation.session.state !== `finished`)
+            .filter((participation) =>
+                participation.session.state !== `lobby`
+                || participation.session.pendingChallengeId === null)
             .length;
     }
 
@@ -2317,10 +2342,12 @@ export class SessionManager {
 /**
  * A bot-only lobby nobody human ever came for, reserved or open: the bot's seat
  * counts as connected, so only this reaper can retire it. Tournaments never match
- * (no bot seats them in this stack), and a lobby holding a human seat never matches.
+ * (no bot seats them in this stack), a lobby holding a human seat never matches, and
+ * a challenge-pending lobby is owned by its challenge, not by the sweep.
  */
 function isAbandonedBotOnlyLobby(session: ServerGameSession, now: number): boolean {
     return session.tournament === null
+        && session.pendingChallengeId === null
         && session.players.length > 0
         && session.players.every((player) => player.isBot)
         && now - session.createdAt >= BOT_ONLY_LOBBY_ABANDONED_AFTER_MS;
