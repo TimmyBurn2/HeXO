@@ -9,6 +9,8 @@ export const queryKeys = {
     accountPreferences: [`account`, `preferences`] as const,
     accountBots: [`account`, `bots`] as const,
     houseBots: [`house-bots`] as const,
+    bots: [`bots`] as const,
+    onlineBots: [`bots`, `online`] as const,
 
     profile: (profileId: string | null) => [`profile`, profileId ?? `unknown`] as const,
     profileRecentGames: (profileId: string | null) => [
