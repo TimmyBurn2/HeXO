@@ -494,3 +494,30 @@ botTest(`open=1 marks the bot open, and the flag dies with the stream`, async ({
     assert.equal(registry.isOpenForChallenges(BOT_PROFILE_ID), false, `openness never outlives its stream`);
     assert.equal(registry.isOnline(BOT_PROFILE_ID), false);
 });
+
+botTest(`a challenge line is written through the same validation as a game line`, async ({ registry, connection }) => {
+    registry.open(BOT_PROFILE, connection, false);
+    await settle();
+
+    registry.emitToBot(BOT_PROFILE_ID, {
+        type: `challenge`,
+        challenge: {
+            challengeId: `c_1`,
+            challenger: { profileId: `bot-2`, displayName: `Rival`, elo: 1_100 },
+            destUser: { profileId: BOT_PROFILE_ID, displayName: `Strix`, elo: 1_500 },
+            timeControl: { mode: `unlimited` },
+            status: `created`,
+        },
+    });
+
+    assert.deepEqual(connection.events().at(-1), {
+        type: `challenge`,
+        challenge: {
+            challengeId: `c_1`,
+            challenger: { profileId: `bot-2`, displayName: `Rival`, elo: 1_100 },
+            destUser: { profileId: BOT_PROFILE_ID, displayName: `Strix`, elo: 1_500 },
+            timeControl: { mode: `unlimited` },
+            status: `created`,
+        },
+    });
+});

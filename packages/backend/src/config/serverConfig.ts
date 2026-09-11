@@ -26,6 +26,9 @@ export class ServerConfig {
     readonly botApiEnabled = this.parseBoolean(process.env.BOT_API_ENABLED) ?? false;
     /* Concurrent games the house bots play in total, and the size of their engine worker pool. */
     readonly houseBotMaxGames = this.parsePositiveInteger(process.env.HOUSE_BOT_MAX_GAMES) ?? 2;
+    /* Challenges are volatile, so their limits are server policy, not persistence. */
+    readonly challengeTtlMs = this.parsePositiveInteger(process.env.CHALLENGE_TTL_MS) ?? 300_000;
+    readonly challengeInboxLimit = this.parsePositiveInteger(process.env.CHALLENGE_INBOX_LIMIT) ?? 10;
 
     toLogObject() {
         return {
@@ -40,6 +43,8 @@ export class ServerConfig {
             prettyLogs: this.prettyLogs,
             botApiEnabled: this.botApiEnabled,
             houseBotMaxGames: this.houseBotMaxGames,
+            challengeTtlMs: this.challengeTtlMs,
+            challengeInboxLimit: this.challengeInboxLimit,
         };
     }
 
@@ -84,7 +89,7 @@ export class ServerConfig {
 
     private parsePositiveInteger(value: string | undefined): number | null {
         const parsed = Number.parseInt(value?.trim() ?? ``, 10);
-        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
     }
 
     private parseBoolean(value: string | undefined): boolean | null {
