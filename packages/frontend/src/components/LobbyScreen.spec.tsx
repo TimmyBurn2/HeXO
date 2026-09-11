@@ -50,6 +50,7 @@ const ratedLobby: LobbyInfo = {
       displayName: 'Ranked Host',
       profileId: 'rated-host',
       elo: 1810,
+      isBot: false,
     },
   ],
   timeControl: {
@@ -69,11 +70,13 @@ const activeLobby: LobbyInfo = {
       displayName: 'Alpha',
       profileId: 'alpha',
       elo: 0,
+      isBot: false,
     },
     {
       displayName: 'Bravo',
       profileId: 'bravo',
       elo: 0,
+      isBot: false,
     },
   ],
   timeControl: {
@@ -91,6 +94,7 @@ const ownRatedLobby: LobbyInfo = {
       displayName: signedInAccount.username,
       profileId: signedInAccount.id,
       elo: 1742,
+      isBot: false,
     },
   ],
   timeControl: {

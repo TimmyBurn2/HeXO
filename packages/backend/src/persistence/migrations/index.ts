@@ -11,6 +11,7 @@ import { playerColorIndicesMigration } from './010-player-color-indices';
 import { lastGamePlayedAtMigration } from './011-last-game-played-at';
 import { sandboxOriginalPositionMigration } from './012-sandbox-original-position';
 import { botAccountsMigration } from './013-bot-accounts';
+import { botHistoryIsBotMigration } from './014-bot-history-is-bot';
 import type { DatabaseMigration } from './types';
 
 export const databaseMigrations: readonly DatabaseMigration[] = [
@@ -27,4 +28,5 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
     lastGamePlayedAtMigration,
     sandboxOriginalPositionMigration,
     botAccountsMigration,
+    botHistoryIsBotMigration,
 ];
