@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import type { AccountProfile, CreateSessionRequest, HouseBotsResponse, LobbyInfo, ShutdownState } from '@ih3t/shared';
+import type { AccountProfile, BotAccount, BotListing, CreateSessionRequest, HouseBotsResponse, LobbyInfo, ShutdownState } from '@ih3t/shared';
 import { useState } from 'react';
 
 import { useHydratedDelay } from '../useHydratedDelay';
@@ -19,7 +19,9 @@ type LobbyScreenProps = {
     unreadChangelogEntries: number
     /** The server's own opponents; null while the flag is off hides every trace of them. */
     houseBots?: HouseBotsResponse | null
-    onHostGame: (request: CreateSessionRequest) => void
+    ownBots?: BotAccount[] | null
+    onlineBots?: BotListing[] | null
+    onHostGame: (request: CreateSessionRequest, botProfileId?: string) => void
     onJoinGame: (sessionId: string) => void
     onOpenSandbox: () => void
     onViewFinishedGames: () => void
@@ -45,6 +47,8 @@ function LobbyScreen({
     liveSessions,
     unreadChangelogEntries,
     houseBots = null,
+    ownBots = null,
+    onlineBots = null,
     onHostGame,
     onJoinGame,
     onViewChangelog,
@@ -61,6 +65,8 @@ function LobbyScreen({
                 onClose={() => setCreateLobbyDialog(null)}
                 account={account}
                 houseBots={houseBots}
+                ownBots={ownBots}
+                onlineBots={onlineBots}
                 onCreateLobby={onHostGame}
             />
 
@@ -137,7 +143,7 @@ function LobbyScreen({
 
                     onJoinGame={onJoinGame}
                     onCreate={() => setCreateLobbyDialog(`open`)}
-                    onPlayBot={houseBots ? () => setCreateLobbyDialog(`bot`) : undefined}
+                    onPlayBot={houseBots ? () => setCreateLobbyDialog(`house-bot`) : undefined}
 
                     className="lg:col-span-7"
                 />

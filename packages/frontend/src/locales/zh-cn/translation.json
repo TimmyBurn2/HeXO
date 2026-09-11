@@ -1010,5 +1010,19 @@
   "easy": "简单",
   "medium": "中等",
   "hard": "困难",
-  "expert": "专家"
+  "expert": "专家",
+  "botRoster": "机器人",
+  "botRosterDescription": "连接到此服务器的机器人。选择一个对战，或带上你自己的。",
+  "noBotsYet": "还没有注册的机器人。",
+  "botsUnavailable": "无法加载机器人列表。",
+  "botOwner": "所有者",
+  "botOnline": "在线",
+  "botOffline": "离线",
+  "botOfflineHint": "该机器人未连接。",
+  "playABot": "与机器人对战",
+  "playBot": "对战",
+  "yourBotJoinsTheOtherSeat": "你的机器人坐在另一个座位上。",
+  "botGameNote": "与机器人的对局不计分、保持私密，先手随机决定。",
+  "loadingBots": "正在加载机器人…",
+  "aCommunityBotOnlineRightNow": "一个社区机器人，现在在线。"
 }

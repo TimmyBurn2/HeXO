@@ -1,15 +1,15 @@
 import { Button } from '@/components/ui/button';
-import type { AccountProfile, CreateSessionRequest, GameTimeControl, HouseBotListing, HouseBotsResponse, LobbyFirstPlayer, LobbyVisibility } from '@ih3t/shared';
+import type { AccountProfile, BotAccount, BotListing, CreateSessionRequest, HouseBotListing, HouseBotsResponse, LobbyFirstPlayer, LobbyVisibility } from '@ih3t/shared';
 import { formatThinkSeconds } from '@ih3t/shared';
 import type { TFunction } from 'i18next';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import BotBadge from './BotBadge';
-import TimeControlSelector from './TimeControlSelector';
+import { LobbyDialogShell, LobbyTimeControlSelector, SelectableOptions, useLobbyTimeControl } from './lobbyOptionsShared';
 import { useTranslation } from 'react-i18next'
 
-/** What the dialog opens on: an open lobby, or the first house bot preselected. */
-export type LobbyOpponentChoice = `open` | `bot`;
+/** What the dialog opens on: an open lobby, the first house bot, or one named community bot. */
+export type LobbyOpponentChoice = `open` | `house-bot` | { kind: `bot`, profileId: string };
 
 type CreateLobbyDialogProps = {
     isOpen: boolean
@@ -17,8 +17,13 @@ type CreateLobbyDialogProps = {
     account: AccountProfile | null
     /** The server's own opponents; null (the flag is off) leaves the dialog exactly as it was. */
     houseBots?: HouseBotsResponse | null
+    /** The signed-in player's bots; null while the flag is off hides the entry. */
+    ownBots?: BotAccount[] | null
+    /** Community bots holding a stream right now; null while the flag is off. */
+    onlineBots?: BotListing[] | null
     initialOpponent?: LobbyOpponentChoice
-    onCreateLobby: (request: CreateSessionRequest) => void
+    /** A community bot takes the reserved-seat route, named by its profile id. */
+    onCreateLobby: (request: CreateSessionRequest, botProfileId?: string) => void
 };
 
 type LocalizedOption<T> = {
@@ -58,21 +63,6 @@ const firstPlayerOptions: LocalizedOption<LobbyFirstPlayer>[] = [
     },
 ];
 
-const TURN_TIME_STEP_SECONDS = [
-    5, 10, 15, 20, 30, 45, 60, 90, 120,
-] as const;
-const TURN_TIME_DEFAULT = 45;
-
-const MATCH_TIME_STEP_MINUTES = [
-    1, 2, 3, 4, 5, 10, 15, 20, 30, 45, 60,
-] as const;
-const MATCH_TIME_DEFAULT = 5;
-
-const INCREMENT_STEP_SECONDS = [
-    0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300,
-] as const;
-const INCREMENT_DEFAULT = 5;
-
 /* The custom-strength slider's ladder, cut to what the chosen bot's engine allows. */
 const THINK_TIME_LADDER_MS = [
     10, 20, 50, 100, 200, 300, 500, 750, 1_000, 1_500, 2_000, 3_000, 5_000,
@@ -103,52 +93,27 @@ function nearestStepIndex(steps: readonly number[], thinkMs: number): number {
     return best;
 }
 
-function SelectableOptions({ onClick, selected, title, description, disabled = false }: Readonly<{ onClick: () => void, selected: boolean, title: string, description: string, disabled?: boolean }>) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={`flex flex-col items-start rounded-[0.9rem] border p-3 text-left transition ${selected
-                ? `border-sky-300/35 bg-sky-300/10 shadow-[0_8px_18px_rgba(14,165,233,0.1)]`
-                : disabled
-                    ? `cursor-not-allowed border-white/8 bg-white/4 opacity-60`
-                    : `border-white/10 bg-white/6 hover:border-white/20 hover:bg-white/10`
-                }`}
-        >
-            <div className="flex flex-row items-center text-sm font-bold text-white">
-                <span className={`mr-2 inline-block h-3.5 w-3.5 align-sub rounded-full border ${selected ? `border-sky-200 bg-sky-300` : `border-white/20 bg-slate-900/40`}`} />
-                {title}
-            </div>
-
-            <div className="mt-1 text-[11px] leading-4.5 text-slate-300">
-                {description}
-            </div>
-        </button>
-    );
-}
-
 function CreateLobbyDialog({
     isOpen,
     onClose,
     account,
     houseBots = null,
+    ownBots = null,
+    onlineBots = null,
     initialOpponent = `open`,
     onCreateLobby,
 }: Readonly<CreateLobbyDialogProps>) {
     const { t } = useTranslation()
     const canCreateRatedLobby = Boolean(account);
     const [visibility, setVisibility] = useState<LobbyVisibility>(`public`);
-    const [timeControlMode, setTimeControlMode] = useState<GameTimeControl[`mode`]>(`match`);
     const [rated, setRated] = useState(canCreateRatedLobby);
     const [firstPlayer, setFirstPlayer] = useState<LobbyFirstPlayer>(`random`);
     const [opponentBotId, setOpponentBotId] = useState<string | null>(null);
     const [thinkMs, setThinkMs] = useState(0);
     const [customStrength, setCustomStrength] = useState(false);
+    const [communityBotId, setCommunityBotId] = useState<string | null>(null);
     const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-    const [turnTimeStepIndex, setTurnTimeStepIndex] = useState(TURN_TIME_STEP_SECONDS.indexOf(TURN_TIME_DEFAULT));
-    const [matchTimeStepIndex, setMatchTimeStepIndex] = useState(MATCH_TIME_STEP_MINUTES.indexOf(MATCH_TIME_DEFAULT));
-    const [incrementStepIndex, setIncrementStepIndex] = useState(INCREMENT_STEP_SECONDS.indexOf(INCREMENT_DEFAULT));
+    const timeControl = useLobbyTimeControl();
 
     useEffect(() => {
         setRated(canCreateRatedLobby);
@@ -159,58 +124,52 @@ function CreateLobbyDialog({
         setOpponentBotId(bot?.profileId ?? null);
         setThinkMs(bot?.thinkMs.default ?? 0);
         setCustomStrength(false);
+        setCommunityBotId(null);
     };
+    const selectCommunityBot = (profileId: string) => {
+        selectBot(null);
+        setCommunityBotId(profileId);
+    };
+    /* Own bots first: the owner's are listed by account, the rest by their stream. */
+    const communityBots: Array<{ profileId: string, username: string, own: boolean }> = [
+        ...(ownBots ?? []).map((bot) => ({ profileId: bot.id, username: bot.username, own: true })),
+        ...(onlineBots ?? [])
+            .filter((bot) => !ownBots?.some((own) => own.id === bot.profileId))
+            .map((bot) => ({ profileId: bot.profileId, username: bot.displayName, own: false })),
+    ];
 
     useEffect(() => {
         if (isOpen) {
             setShowAdvancedOptions(false);
-            selectBot(initialOpponent === `bot` && canPickBot ? houseBots.bots[0] : null);
+            if (typeof initialOpponent === `object`) {
+                selectCommunityBot(initialOpponent.profileId);
+            } else {
+                selectBot(initialOpponent === `house-bot` && canPickBot ? houseBots.bots[0] : null);
+            }
         }
-        /* Opening resets the opponent; what the list holds while open is not a reset. */
+        /* Opening resets the opponent; what the lists hold while open is not a reset. */
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, initialOpponent]);
 
     const selectedBot = opponentBotId
         ? houseBots?.bots.find((bot) => bot.profileId === opponentBotId) ?? null
         : null;
+    const selectedCommunityBot = communityBotId
+        ? communityBots.find((bot) => bot.profileId === communityBotId) ?? null
+        : null;
+    const botSeated = selectedBot !== null || selectedCommunityBot !== null;
     const strengthSteps = selectedBot ? thinkTimeSteps(selectedBot) : [];
     const selectedPreset = selectedBot && !customStrength
         ? selectedBot.presets.find((preset) => preset.thinkMs === thinkMs) ?? null
         : null;
     const presetLabel = (id: string) => strengthPresetLabels[id]?.(t) ?? null;
 
-    const turnTimeSeconds = TURN_TIME_STEP_SECONDS[turnTimeStepIndex];
-    const matchTimeMinutes = MATCH_TIME_STEP_MINUTES[matchTimeStepIndex];
-    const incrementSeconds = INCREMENT_STEP_SECONDS[incrementStepIndex];
-
-    const selectedTimeControl = useMemo<GameTimeControl>(() => {
-        if (timeControlMode === `turn`) {
-            return {
-                mode: `turn`,
-                turnTimeMs: turnTimeSeconds * 1000,
-            };
-        }
-
-        if (timeControlMode === `match`) {
-            return {
-                mode: `match`,
-                mainTimeMs: matchTimeMinutes * 60 * 1000,
-                incrementMs: incrementSeconds * 1000,
-            };
-        }
-
-        return {
-            mode: `unlimited`,
-        };
-    }, [
-        incrementSeconds, matchTimeMinutes, timeControlMode, turnTimeSeconds,
-    ]);
-
     const selectedFirstPlayer = firstPlayerOptions.find((option) => option.value === firstPlayer) ?? firstPlayerOptions[0];
     /* A bot seat is never rated and the server picks who starts; the dialog stops
-     * offering choices it would not honour. */
-    const isRated = selectedBot ? false : rated;
-    const firstPlayerTitle = selectedBot ? t('random', 'Random') : selectedFirstPlayer.title(t);
+     * offering choices it would not honour. A community bot's lobby is private too. */
+    const isRated = botSeated ? false : rated;
+    const firstPlayerTitle = botSeated ? t('random', 'Random') : selectedFirstPlayer.title(t);
+    const visibilityTitle = selectedCommunityBot || visibility === `private` ? t('private', 'Private') : t('public', 'Public');
 
     if (!isOpen) {
         return null;
@@ -220,25 +179,25 @@ function CreateLobbyDialog({
         const request: CreateSessionRequest = {
             lobbyOptions: {
                 visibility,
-                timeControl: selectedTimeControl,
+                timeControl: timeControl.selectedTimeControl,
                 rated: isRated,
-                firstPlayer: selectedBot ? `random` : firstPlayer,
+                firstPlayer: botSeated ? `random` : firstPlayer,
             },
         };
         if (selectedBot) {
             request.opponent = { kind: `house-bot`, profileId: selectedBot.profileId, thinkMs };
         }
 
-        onCreateLobby(request);
+        onCreateLobby(request, selectedCommunityBot?.profileId);
     };
 
     const badges = [
         isRated ? t('rated', 'Rated') : t('casual', 'Casual'),
-        visibility === `private` ? t('private', 'Private') : t('public', 'Public'),
+        visibilityTitle,
         firstPlayerTitle
     ]
 
-    const opponentSection = houseBots && (
+    const opponentSection = (houseBots || ownBots || onlineBots) && (
         <section className="p-0" data-testid="opponent-section">
             <div className="flex items-center justify-between gap-3">
                 <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">
@@ -251,6 +210,11 @@ function CreateLobbyDialog({
                             {selectedBot.displayName} {formatThinkSeconds(thinkMs)}
                             <BotBadge />
                         </>
+                    ) : selectedCommunityBot ? (
+                        <>
+                            {selectedCommunityBot.username}
+                            <BotBadge />
+                        </>
                     ) : t('openLobby', 'Open lobby')}
                 </div>
             </div>
@@ -258,24 +222,42 @@ function CreateLobbyDialog({
             <div className="mt-2.5 grid grid-cols-2 gap-2">
                 <SelectableOptions
                     onClick={() => selectBot(null)}
-                    selected={!selectedBot}
+                    selected={!botSeated}
                     title={t('openLobby', 'Open lobby')}
                     description={t('anyoneCanTakeTheOtherSeat', 'Anyone can take the other seat.')}
                 />
 
-                {houseBots.bots.map((bot) => (
+                {(houseBots?.bots ?? []).map((bot) => (
                     <SelectableOptions
                         key={bot.profileId}
                         onClick={() => selectBot(bot)}
                         selected={selectedBot?.profileId === bot.profileId}
-                        disabled={!houseBots.available}
+                        disabled={!houseBots?.available}
                         title={bot.displayName}
-                        description={houseBots.available
+                        description={houseBots?.available
                             ? t('theServerPlaysYouAtTheStrengthYouPick', 'The server plays you at the strength you pick.')
                             : t('busyInEveryGameItCanPlayRightNow', 'Busy in every game it can play right now. Try again in a moment.')}
                     />
                 ))}
+
+                {communityBots.map((bot) => (
+                    <SelectableOptions
+                        key={bot.profileId}
+                        onClick={() => selectCommunityBot(bot.profileId)}
+                        selected={selectedCommunityBot?.profileId === bot.profileId}
+                        title={bot.username}
+                        description={bot.own
+                            ? t('yourBotJoinsTheOtherSeat', 'Your bot takes the other seat.')
+                            : t('aCommunityBotOnlineRightNow', 'A community bot, online right now.')}
+                    />
+                ))}
             </div>
+
+            {selectedCommunityBot && (
+                <div className="mt-2.5 rounded-[0.9rem] border border-white/8 bg-white/4 px-3 py-2.5 text-xs leading-5 text-slate-300">
+                    {t('botGameNote', 'Games against a bot are unrated, private, and the first player is chosen at random.')}
+                </div>
+            )}
 
             {selectedBot && (
                 <div className="mt-2.5 rounded-[0.9rem] border border-white/8 bg-white/4 px-3 py-2.5">
@@ -358,18 +340,10 @@ function CreateLobbyDialog({
     );
 
     return (
-        <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/70 px-4 py-6 backdrop-blur-md flex flex-col">
-            <div
-                className="absolute inset-0"
-                onClick={onClose}
-            />
-
-            <div className="relative my-auto z-10 flex self-center items-center justify-center">
-                <section className="relative my-auto w-full max-w-2xl overflow-hidden rounded-[1.25rem] border border-white/10 bg-[linear-gradient(155deg,rgba(15,23,42,0.97),rgba(17,24,39,0.95)_55%,rgba(30,41,59,0.92))] p-3.5 text-white shadow-[0_24px_80px_rgba(2,6,23,0.55)] sm:p-4">
-                    <div className="absolute -right-10 -top-14 h-20 w-20 rounded-full bg-sky-400/16 blur-3xl" />
-                    <div className="absolute -left-8 bottom-0 h-16 w-16 rounded-full bg-amber-300/12 blur-3xl" />
-
-                    <div className="relative">
+        <LobbyDialogShell
+            onClose={onClose}
+            accent={<div className="absolute -left-8 bottom-0 h-16 w-16 rounded-full bg-amber-300/12 blur-3xl" />}
+        >
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                                 <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
@@ -408,23 +382,7 @@ function CreateLobbyDialog({
                                         </div>
                                     )}
 
-                                    <TimeControlSelector
-                                        mode={timeControlMode}
-                                        selectedTimeControl={selectedTimeControl}
-                                        turnTimeSeconds={turnTimeSeconds}
-                                        matchTimeMinutes={matchTimeMinutes}
-                                        incrementSeconds={incrementSeconds}
-                                        turnTimeStepCount={TURN_TIME_STEP_SECONDS.length}
-                                        matchTimeStepCount={MATCH_TIME_STEP_MINUTES.length}
-                                        incrementStepCount={INCREMENT_STEP_SECONDS.length}
-                                        turnTimeStepIndex={turnTimeStepIndex}
-                                        matchTimeStepIndex={matchTimeStepIndex}
-                                        incrementStepIndex={incrementStepIndex}
-                                        onModeChange={setTimeControlMode}
-                                        onTurnTimeStepIndexChange={setTurnTimeStepIndex}
-                                        onMatchTimeStepIndexChange={setMatchTimeStepIndex}
-                                        onIncrementStepIndexChange={setIncrementStepIndex}
-                                    />
+                                    <LobbyTimeControlSelector timeControl={timeControl} />
                                 </section>
                             )}
 
@@ -432,7 +390,7 @@ function CreateLobbyDialog({
                                 <>
                                     {opponentSection}
 
-                                    {!selectedBot && (
+                                    {!botSeated && (
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -475,6 +433,7 @@ function CreateLobbyDialog({
                                     </section>
                                     )}
 
+                                    {!selectedCommunityBot && (
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -484,7 +443,7 @@ function CreateLobbyDialog({
                                             </div>
 
                                             <div className="rounded-full bg-white/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-100">
-                                                {visibility === `private` ? t('private', 'Private') : t('public', 'Public')}
+                                                {visibilityTitle}
                                             </div>
                                         </div>
 
@@ -506,8 +465,9 @@ function CreateLobbyDialog({
                                             })}
                                         </div>
                                     </section>
+                                    )}
 
-                                    {!selectedBot && (
+                                    {!botSeated && (
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -541,23 +501,7 @@ function CreateLobbyDialog({
 
 
                                     <section>
-                                        <TimeControlSelector
-                                            mode={timeControlMode}
-                                            selectedTimeControl={selectedTimeControl}
-                                            turnTimeSeconds={turnTimeSeconds}
-                                            matchTimeMinutes={matchTimeMinutes}
-                                            incrementSeconds={incrementSeconds}
-                                            turnTimeStepCount={TURN_TIME_STEP_SECONDS.length}
-                                            matchTimeStepCount={MATCH_TIME_STEP_MINUTES.length}
-                                            incrementStepCount={INCREMENT_STEP_SECONDS.length}
-                                            turnTimeStepIndex={turnTimeStepIndex}
-                                            matchTimeStepIndex={matchTimeStepIndex}
-                                            incrementStepIndex={incrementStepIndex}
-                                            onModeChange={setTimeControlMode}
-                                            onTurnTimeStepIndexChange={setTurnTimeStepIndex}
-                                            onMatchTimeStepIndexChange={setMatchTimeStepIndex}
-                                            onIncrementStepIndexChange={setIncrementStepIndex}
-                                        />
+                                        <LobbyTimeControlSelector timeControl={timeControl} />
                                     </section>
                                 </>
                             )}
@@ -578,10 +522,7 @@ function CreateLobbyDialog({
                                 {t('createLobby', 'Create Lobby')}
                             </Button>
                         </div>
-                    </div>
-                </section>
-            </div>
-        </div>
+        </LobbyDialogShell>
     );
 }
 

@@ -1,4 +1,4 @@
-import type { AccountProfile, CreateSessionRequest, HouseBotsResponse } from '@ih3t/shared'
+import type { AccountProfile, BotAccount, CreateSessionRequest, HouseBotsResponse } from '@ih3t/shared'
 import { expect, test } from '@playwright/experimental-ct-react'
 import CreateLobbyDialog from './CreateLobbyDialog'
 
@@ -179,7 +179,7 @@ test('a custom strength comes off the slider within the engine range', async ({ 
   const component = await mount(
     <CreateLobbyDialog
       isOpen
-      initialOpponent="bot"
+      initialOpponent="house-bot"
       onClose={() => { }}
       account={null}
       houseBots={houseBots}
@@ -208,7 +208,7 @@ test('at capacity the bot is shown but not offered, and open lobbies still work'
   const component = await mount(
     <CreateLobbyDialog
       isOpen
-      initialOpponent="bot"
+      initialOpponent="house-bot"
       onClose={() => { }}
       account={null}
       houseBots={{ ...houseBots, available: false }}
@@ -235,6 +235,77 @@ test('at capacity the bot is shown but not offered, and open lobbies still work'
       firstPlayer: 'random',
     },
   })
+})
+
+const ownBot: BotAccount = {
+  id: 'bot-1',
+  username: 'Strix',
+  image: null,
+  ownerProfileId: 'account-1',
+  createdAt: 1_700_000_000_000,
+  tokenRotatedAt: null,
+}
+
+test('picking one of your bots submits an unrated request naming the bot', async ({ mount }) => {
+  let createRequest: CreateSessionRequest | null = null
+  let botProfileId: string | undefined
+
+  const component = await mount(
+    <CreateLobbyDialog
+      isOpen
+      onClose={() => { }}
+      account={authenticatedAccount}
+      houseBots={houseBots}
+      ownBots={[ownBot]}
+      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: false }]}
+      onCreateLobby={(request, botId) => {
+        createRequest = request
+        botProfileId = botId
+      }}
+    />
+  )
+
+  await component.getByRole('button', { name: /^Strix/ }).click()
+  await expect(component.getByText('Strix', { exact: true })).toBeVisible()
+  await expect(component.getByRole('button', { name: /^Wren/ })).toBeVisible()
+
+  /* No rated, first-player or visibility picker: the server decides all three for a community bot. */
+  await component.getByRole('button', { name: /Customize Match|Advanced Settings/i }).click()
+  await expect(component.getByText(/Rated game with ELO/i)).toHaveCount(0)
+  await expect(component.getByText(/Host Starts/i)).toHaveCount(0)
+  await expect(component.getByText(/Private Lobby/i)).toHaveCount(0)
+
+  await component.getByRole('button', { name: /^Create Lobby$/i }).click()
+
+  expect(createRequest).toEqual({
+    lobbyOptions: {
+      visibility: 'public',
+      timeControl: {
+        mode: 'match',
+        mainTimeMs: 5 * 60 * 1000,
+        incrementMs: 5 * 1000,
+      },
+      rated: false,
+      firstPlayer: 'random',
+    },
+  })
+  expect(botProfileId).toBe('bot-1')
+})
+
+test('opens on a named community bot', async ({ mount }) => {
+  const component = await mount(
+    <CreateLobbyDialog
+      isOpen
+      initialOpponent={{ kind: 'bot', profileId: 'bot-2' }}
+      onClose={() => { }}
+      account={null}
+      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: false }]}
+      onCreateLobby={() => { }}
+    />
+  )
+
+  await expect(component.getByRole('button', { name: /^Wren/ })).toHaveAttribute('class', /border-sky-300/)
+  await expect(component.getByText('Wren', { exact: true })).toBeVisible()
 })
 
 test('matches the authenticated lobby dialog screenshot', async ({ mount }) => {

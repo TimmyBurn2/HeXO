@@ -6,7 +6,8 @@ import LobbyScreen from '../components/LobbyScreen';
 import PageMetadata, { DEFAULT_PAGE_TITLE } from '../components/PageMetadata';
 import { joinSession } from '../liveGameClient';
 import { useLiveGameStore } from '../liveGameStore';
-import { useQueryAccount, useQueryAccountPreferences } from '../query/accountClient';
+import { useQueryAccount, useQueryAccountBots, useQueryAccountPreferences } from '../query/accountClient';
+import { createBotSession, useQueryBots } from '../query/botsClient';
 import { useQueryHouseBots } from '../query/houseBotsClient';
 import { useQueryServerShutdown } from '../query/serverClient';
 import { hostGame } from '../query/sessionClient';
@@ -25,16 +26,26 @@ function LobbyRoute() {
         enabled: !accountQuery.isLoading && Boolean(accountQuery.data?.user),
     });
     const availableSessionsQuery = useQueryAvailableSessions({ enabled: true });
-    /* Null while the flag is off: the dialog's opponent section hides with it. */
+    /* Null while the flag is off: the dialog's opponent section hides with them. */
     const houseBotsQuery = useQueryHouseBots();
+    const accountBotsQuery = useQueryAccountBots({
+        enabled: !accountQuery.isLoading && Boolean(accountQuery.data?.user),
+    });
+    const onlineBotsQuery = useQueryBots({ onlineOnly: true });
     const unreadChangelogEntries = accountQuery.data?.user && accountPreferencesQuery.data?.preferences
         ? countUnreadChangelogEntries(CHANGELOG_DAYS, accountPreferencesQuery.data.preferences.changelogReadAt)
         : 0;
 
-    const createLobby = (request: CreateSessionRequest) => {
+    const createLobby = (request: CreateSessionRequest, botProfileId?: string) => {
         void (async () => {
             try {
-                const sessionId = await hostGame(request);
+                /* A community bot takes the reserved-seat route; the options that do not
+                 * apply to it (visibility, first player, rating) are decided server-side. */
+                const sessionId = botProfileId
+                    ? await createBotSession(botProfileId, {
+                        timeControl: request.lobbyOptions?.timeControl,
+                    })
+                    : await hostGame(request);
                 if (!sessionId) {
                     return;
                 }
@@ -69,6 +80,8 @@ function LobbyRoute() {
                 isAccountLoading={accountQuery.isLoading}
                 liveSessions={availableSessionsQuery.data ?? []}
                 houseBots={houseBotsQuery.data ?? null}
+                ownBots={accountBotsQuery.data?.bots ?? null}
+                onlineBots={onlineBotsQuery.data ?? null}
                 onHostGame={createLobby}
                 onJoinGame={joinLiveGame}
                 onOpenSandbox={() => void navigate(`/sandbox`)}
