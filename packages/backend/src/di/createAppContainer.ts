@@ -8,6 +8,7 @@ import { AuthService } from '../auth/authService';
 import { BotAccountRepository } from '../bots/botAccountRepository';
 import { BotAccountService } from '../bots/botAccountService';
 import { BotAuthService } from '../bots/botAuthService';
+import { BotDirectoryService } from '../bots/botDirectoryService';
 import { BotPlayService } from '../bots/botPlayService';
 import { BotStreamRegistry } from '../bots/botStreamRegistry';
 import { ServerConfig } from '../config/serverConfig';
@@ -55,6 +56,7 @@ export function createAppContainer(): DependencyContainer {
     appContainer.registerSingleton(BotAccountRepository);
     appContainer.registerSingleton(BotAccountService);
     appContainer.registerSingleton(BotAuthService);
+    appContainer.registerSingleton(BotDirectoryService);
     appContainer.registerSingleton(BotPlayService);
     appContainer.registerSingleton(BotStreamRegistry);
     appContainer.registerSingleton(EloRepository);

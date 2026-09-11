@@ -78,7 +78,7 @@ export class BotPlayService {
             throw new ApiRequestError(400, `That lobby has no seat left for a bot.`);
         }
 
-        if (this.countActiveSessions(bot.id) >= MAX_CONCURRENT_GAMES_PER_BOT) {
+        if (this.sessionManager.countActivePlayerSessionsByProfileId(bot.id) >= MAX_CONCURRENT_GAMES_PER_BOT) {
             throw new ApiRequestError(400, `A bot can play at most ${MAX_CONCURRENT_GAMES_PER_BOT} games at once.`);
         }
 
@@ -223,14 +223,6 @@ export class BotPlayService {
                 && participation.session.gameId
                 ? [{ session: participation.session, participant: participation.participant }]
                 : []);
-    }
-
-    /** The cap counts lobbies too: refusing only once a game starts is refusing too late. */
-    private countActiveSessions(botProfileId: string): number {
-        return this.sessionManager.getPlayerParticipationsByProfileId(botProfileId)
-            .filter((participation) => participation.role === `player`
-                && participation.session.state !== `finished`)
-            .length;
     }
 
     private async toBotPlayer(profile: AccountUserProfile | null): Promise<BotPlayer> {

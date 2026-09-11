@@ -49,6 +49,7 @@ import { type AccountUserProfile, AuthRepository } from '../../auth/authReposito
 import { AuthService } from '../../auth/authService';
 import { BotAccountService, MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
 import { BotAuthService } from '../../bots/botAuthService';
+import { BotDirectoryService } from '../../bots/botDirectoryService';
 import { BotMoveError, BotPlayService } from '../../bots/botPlayService';
 import { BotStreamRegistry } from '../../bots/botStreamRegistry';
 import { ServerConfig } from '../../config/serverConfig';
@@ -119,6 +120,10 @@ const zGameTimeControlInput = z.union([
         mode: z.literal(`unlimited`),
     }),
 ]);
+const zCreateBotSessionRequestInput = z.object({
+    timeControl: zGameTimeControlInput.optional(),
+});
+
 const zCreateSessionRequestInput = z.object({
     lobbyOptions: z.object({
         visibility: zLobbyVisibility.optional(),
@@ -147,6 +152,7 @@ export class ApiRouter {
         @inject(ServerConfig) private readonly serverConfig: ServerConfig,
         @inject(BotAccountService) private readonly botAccountService: BotAccountService,
         @inject(BotAuthService) private readonly botAuthService: BotAuthService,
+        @inject(BotDirectoryService) private readonly botDirectoryService: BotDirectoryService,
         @inject(BotPlayService) private readonly botPlayService: BotPlayService,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
     ) {
@@ -257,6 +263,46 @@ export class ApiRouter {
                     await this.botPlayService.joinSession(bot, req.params.sessionId);
                     res.json({ ok: true });
                 });
+            });
+
+            /* The public roster and the website's Play button: human-facing, so cookie
+             * auth rather than a bot token, and the same flag as the bot API. */
+            router.get(`/bots`, async (req, res) => {
+                res.json(await this.botDirectoryService.listBots(req.query.online === `1`));
+            });
+
+            router.post(`/bots/:profileId/session`, express.json(), async (req, res) => {
+                const user = await this.authService.getUserFromRequest(req);
+                if (!user) {
+                    res.status(401).json({ error: `Sign in to play a bot.` });
+                    return;
+                }
+
+                let request: z.infer<typeof zCreateBotSessionRequestInput>;
+                try {
+                    request = zCreateBotSessionRequestInput.parse(req.body ?? {});
+                } catch {
+                    res.status(400).json({ error: `The lobby options are not valid.` });
+                    return;
+                }
+
+                try {
+                    res.json(await this.botDirectoryService.createBotSession(user, req.params.profileId, getRequestClientInfo(req), {
+                        timeControl: request.timeControl ?? { ...DEFAULT_LOBBY_OPTIONS.timeControl },
+                    }));
+                } catch (error: unknown) {
+                    if (error instanceof ApiRequestError) {
+                        res.status(error.statusCode).json({ error: error.message });
+                        return;
+                    }
+
+                    if (error instanceof SessionError) {
+                        res.status(409).json({ error: error.message });
+                        return;
+                    }
+
+                    throw error;
+                }
             });
 
             router.get(`/account/bots`, async (req, res) => {

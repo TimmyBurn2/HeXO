@@ -9,6 +9,7 @@ import express from 'express';
 import type { AccountUserProfile } from '../../auth/authRepository';
 import { MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
 import { BotMoveError } from '../../bots/botPlayService';
+import { SessionError } from '../../session/sessionManager';
 import { ApiRequestError } from './apiQueryService';
 import { ApiRouter } from './createApiRouter';
 
@@ -30,6 +31,7 @@ function createRouter(overrides: {
     botAccountService?: Partial<Record<string, unknown>>;
     botToken?: AccountUserProfile | null;
     botPlayService?: Partial<Record<string, unknown>>;
+    botDirectoryService?: Partial<Record<string, unknown>>;
 }) {
     const botAccountService = {
         listBots: () => Promise.resolve([bot]),
@@ -54,6 +56,11 @@ function createRouter(overrides: {
         { botApiEnabled: overrides.botApiEnabled ?? true } as never,
         botAccountService as never,
         { getBotFromRequest: () => Promise.resolve(overrides.botToken ?? null) } as never,
+        {
+            listBots: () => Promise.resolve([]),
+            createBotSession: () => Promise.resolve({ sessionId: `fresh-session` }),
+            ...overrides.botDirectoryService,
+        } as never,
         {
             getAccount: () => Promise.resolve({ bot: botPlayer, owner: botPlayer, activeGames: [] }),
             joinSession: () => Promise.resolve(),
@@ -196,6 +203,8 @@ test(`the play routes do not exist while the flag is off`, async () => {
             [`POST`, `/bot/game/game-1/move`],
             [`POST`, `/bot/game/game-1/resign`],
             [`POST`, `/bot/session/abc123/join`],
+            [`GET`, `/bots`],
+            [`POST`, `/bots/bot-1/session`],
         ] as const) {
             const response = await fetch(`${baseUrl}${path}`, { method });
             assert.equal(response.status, 404, path);
@@ -263,5 +272,91 @@ test(`resigning a game answers ok`, async () => {
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { ok: true });
         assert.deepEqual(seen, [`game-1`]);
+    });
+});
+
+test(`the bot roster is readable without signing in`, async () => {
+    const listing = { profileId: `bot-1`, displayName: `Strix`, elo: 1_337, owner: `owner-1`, online: true, openForChallenges: false };
+    const router = createRouter({ botDirectoryService: { listBots: () => Promise.resolve([listing]) } });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots?online=1`);
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), [listing]);
+    });
+});
+
+test(`starting a bot session requires signing in`, async () => {
+    const router = createRouter({ user: null });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/bot-1/session`, { method: `POST` });
+
+        assert.equal(response.status, 401);
+    });
+});
+
+test(`starting a bot session answers with the new session id`, async () => {
+    const seenOptions: object[] = [];
+    const router = createRouter({
+        user: owner,
+        botDirectoryService: {
+            createBotSession: (_user: AccountUserProfile, profileId: string, _client: unknown, options: object) => {
+                seenOptions.push({ profileId, options });
+                return Promise.resolve({ sessionId: `fresh-session` });
+            },
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        /* A legacy body still asking for a rated game gets the field dropped on the
+         * floor: a bot seat is never rated, and the server does not pretend to obey. */
+        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ rated: true }),
+        });
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { sessionId: `fresh-session` });
+        assert.deepEqual(seenOptions, [{
+            profileId: `bot-1`,
+            options: { timeControl: { mode: `turn`, turnTimeMs: 45_000 } },
+        }]);
+    });
+});
+
+test(`a malformed bot session request answers 400`, async () => {
+    const router = createRouter({ user: owner });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ timeControl: { mode: `nonsense` } }),
+        });
+
+        assert.equal(response.status, 400);
+    });
+});
+
+test(`a bot session the session manager refuses answers 409`, async () => {
+    const router = createRouter({
+        user: owner,
+        botDirectoryService: {
+            createBotSession: () => Promise.reject(new SessionError(`The server is currently at its concurrent game limit (2). Please wait for another game to finish before creating a new one.`)),
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ rated: true }),
+        });
+
+        assert.equal(response.status, 409);
+        assert.deepEqual(await response.json(), { error: `The server is currently at its concurrent game limit (2). Please wait for another game to finish before creating a new one.` });
     });
 });

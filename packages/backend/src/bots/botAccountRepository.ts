@@ -55,6 +55,17 @@ export class BotAccountRepository {
         return documents.map((document) => this.mapBotAccount(document, tokens.get(document._id.toHexString()) ?? null));
     }
 
+    /** Every live bot account, across owners — the public roster's query. */
+    async listAll(): Promise<BotAccount[]> {
+        const collection = await this.getUsersCollection();
+        const documents = await collection
+            .find({ kind: `bot`, deletedAt: null })
+            .sort({ registeredAt: 1 })
+            .toArray();
+
+        return documents.map((document) => this.mapBotAccount(document, null));
+    }
+
     async findByOwner(ownerProfileId: string, botProfileId: string): Promise<BotAccount | null> {
         const collection = await this.getUsersCollection();
         const objectId = this.parseObjectId(botProfileId);

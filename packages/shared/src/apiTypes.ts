@@ -234,6 +234,24 @@ export type BotAccountTokenResponse = z.infer<
     typeof zBotAccountTokenResponse
 >;
 
+/* The public bot directory, spec tag Directory (`GET /api/bots`). */
+export const zBotListing = z.object({
+    profileId: zIdentifier,
+    displayName: z.string(),
+    elo: z.number().int(),
+    owner: zIdentifier.optional(),
+    online: z.boolean(),
+    openForChallenges: z.boolean(),
+});
+export type BotListing = z.infer<typeof zBotListing>;
+
+/* The options a human picks to start a game against a bot; the server owns the rest
+ * (visibility is private, first player random, and every bot game is unrated). */
+export const zCreateBotSessionRequest = z.object({
+    timeControl: zGameTimeControl.optional(),
+});
+export type CreateBotSessionRequest = z.infer<typeof zCreateBotSessionRequest>;
+
 /*
  * The bot play API. Paths, event shapes and error codes are defined by the spec
  * repository (TimmyBurn2/Hexo-Bot-Api); these schemas mirror it and must not drift.

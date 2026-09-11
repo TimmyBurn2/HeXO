@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { type SessionId } from '@ih3t/shared';
+import { type SessionId, type SessionUpdatedEvent } from '@ih3t/shared';
 import pino from 'pino';
 
 import type { AccountUserProfile } from '../auth/authRepository';
@@ -165,6 +165,29 @@ playTest(`a bot claims a seat in a lobby`, async ({ session, service }) => {
     assert.equal(session.players.length, 1);
     assert.equal(session.players[0]?.profileId, BOT_PROFILE_ID);
     assert.equal(session.players[0]?.isBot, true);
+});
+
+playTest(`a bot joining a rated lobby unrates it before the game starts`, async ({ sessionManager, session, service }) => {
+    /* The ?join= path into a human lobby that asked for a rating. */
+    toLobby(session, { keepSeats: true });
+    session.players.length = 1;
+    session.gameOptions.rated = true;
+    /* Seated but not connected, so nothing can start the game out from under the join. */
+    session.players[0].connection = { status: `disconnected`, timestamp: 0 };
+
+    const updates: SessionUpdatedEvent[] = [];
+    sessionManager.addEventHandlers({
+        sessionUpdated: (event) => { updates.push(event); },
+    });
+
+    await service.joinSession(BOT_PROFILE, session.id);
+
+    assert.equal(session.gameOptions.rated, false, `the lobby flipped to unrated`);
+    assert.equal(session.state, `lobby`, `and it is still a lobby, not a game`);
+
+    const update = updates.filter((event) => event.session.gameOptions).at(-1);
+    assert.ok(update, `the session update carries the gameOptions`);
+    assert.equal(update.session.gameOptions?.rated, false, `the human's lobby info says unrated before the start`);
 });
 
 playTest(`joining twice reclaims the same seat`, async ({ session, service }) => {
