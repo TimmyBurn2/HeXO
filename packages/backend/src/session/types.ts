@@ -44,6 +44,9 @@ export type ServerSessionPlayer = SessionPlayer & {
     // New players rating
     ratingAdjusted: PlayerRating | null,
 
+    /* Server-side only: the socket contract has no seat kind yet. */
+    isBot: boolean,
+
     connection: ServerPlayerConnection
 };
 

@@ -105,7 +105,7 @@ const GUEST = `player-guest`;
 
 function createStartedSession(
     sessionManager: SessionManager,
-    options: { sessionId?: string } = {},
+    options: { sessionId?: string, guestIsBot?: boolean } = {},
 ): ServerGameSession {
     const sessionId = (options.sessionId ?? `session-play`) as SessionId;
     const session = createGameSession(sessionId, {
@@ -115,7 +115,7 @@ function createStartedSession(
         firstPlayer: `host`,
     });
 
-    for (const id of [HOST, GUEST]) {
+    for (const [id, isBot] of [[HOST, false], [GUEST, options.guestIsBot ?? false]] as const) {
         session.players.push({
             id,
             deviceId: `device-${id}`,
@@ -124,6 +124,7 @@ function createStartedSession(
             rating: { eloScore: 1_000, gameCount: 0 },
             ratingAdjustment: null,
             ratingAdjusted: null,
+            isBot,
             connection: { status: `connected`, socketId: `socket-${id}` },
         });
     }
@@ -276,4 +277,25 @@ test(`a created rematch is announced with the sockets its seats held`, async () 
     );
     assert.ok(rematchSession.players.every((player) => player.id in socketMapping));
     assert.equal(sessionManager.getSession(session.id), rematchSession, `the announced session is already reachable`);
+});
+
+test(`a draw cannot be offered in a game with a bot in it`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager, { guestIsBot: true });
+
+    await assert.rejects(
+        () => sessionManager.requestDraw(session, HOST),
+        /cannot end in a draw/i,
+    );
+    assert.equal(session.drawRequest, null);
+});
+
+test(`a draw is still offerable between two humans`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+    session.drawRequestAvailableAfterTurn = 0;
+
+    await sessionManager.requestDraw(session, HOST);
+
+    assert.equal(session.drawRequest, HOST);
 });
