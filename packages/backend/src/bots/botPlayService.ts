@@ -11,7 +11,7 @@ import { inject, injectable } from 'tsyringe';
 import { type AccountUserProfile, AuthRepository } from '../auth/authRepository';
 import { EloHandler } from '../elo/eloHandler';
 import { ApiRequestError } from '../network/rest/apiQueryService';
-import { MAX_PLAYERS_PER_SESSION, SessionManager } from '../session/sessionManager';
+import { MAX_PLAYERS_PER_SESSION, SessionError, SessionManager } from '../session/sessionManager';
 import type { ServerGameSession, ServerSessionPlayer } from '../session/types';
 import { BotAccountRepository } from './botAccountRepository';
 import { MAX_CONCURRENT_GAMES_PER_BOT } from './botAccountService';
@@ -125,6 +125,34 @@ export class BotPlayService {
             /* Lost a race with the clock or the opponent: nothing was applied. */
             const late = this.classify(session, seat, move.cells);
             throw new BotMoveError(error instanceof Error ? error.message : `The move was rejected.`, late?.code ?? null);
+        }
+    }
+
+    /** The one game control the contract has; everything downstream is the human resign path. */
+    async resignGame(bot: AccountUserProfile, gameId: string): Promise<void> {
+        const session = this.sessionManager.getSessionByGameId(gameId);
+        if (!session) {
+            throw new BotMoveError(`That game is not in progress.`, `game-over`);
+        }
+
+        const seat = session.players.find((player) => player.profileId === bot.id);
+        if (!seat) {
+            throw new BotMoveError(`You are not playing that game.`);
+        }
+
+        if (session.state !== `in-game` || session.gameState.winner) {
+            throw new BotMoveError(`That game is over.`, `game-over`);
+        }
+
+        try {
+            await this.sessionManager.surrenderSession(session, seat.id);
+        } catch (error: unknown) {
+            /* Lost a race with the opponent finishing first: the same terminal state. */
+            if (error instanceof SessionError) {
+                throw new BotMoveError(error.message, `game-over`);
+            }
+
+            throw error;
         }
     }
 

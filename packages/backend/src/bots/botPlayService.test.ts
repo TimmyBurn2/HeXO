@@ -9,7 +9,7 @@ import pino from 'pino';
 import type { AccountUserProfile } from '../auth/authRepository';
 import type { AuthRepository } from '../auth/authRepository';
 import type { EloHandler } from '../elo/eloHandler';
-import { SessionManager } from '../session/sessionManager';
+import { SessionError, SessionManager } from '../session/sessionManager';
 import { createGameSession, type ServerGameSession } from '../session/types';
 import { GameSimulation } from '../simulation/gameSimulation';
 import { GameTimeControlManager } from '../simulation/gameTimeControlManager';
@@ -42,6 +42,7 @@ type Fixture = {
     session: ServerGameSession;
     service: BotPlayService;
     registry: BotStreamRegistry;
+    gameResults: (`win` | `loss`)[];
 };
 
 function move(cells: { q: number, r: number }[], requestId?: number): unknown {
@@ -49,12 +50,19 @@ function move(cells: { q: number, r: number }[], requestId?: number): unknown {
 }
 
 function createFixture(): Fixture {
+    const gameResults: (`win` | `loss`)[] = [];
     const sessionManager = new SessionManager(
         pino({ level: `silent` }),
         { createShutdownHook: () => ({ tryShutdown: () => { } }) } as never,
         new GameSimulation(),
         new GameTimeControlManager(),
-        { getPlayerRating: () => Promise.resolve({ eloScore: 1_000, gameCount: 0 }) } as never,
+        {
+            getPlayerRating: () => Promise.resolve({ eloScore: 1_000, gameCount: 0 }),
+            applyGameResult: async (_playerId: string, _adjustment: never, result: `win` | `loss`) => {
+                gameResults.push(result);
+                return { eloScore: 1_012, gameCount: 1 };
+            },
+        } as never,
         { appendMove: () => Promise.resolve(), finishGame: () => Promise.resolve() } as never,
         { track: () => { } } as never,
         {} as never,
@@ -113,7 +121,7 @@ function createFixture(): Fixture {
         eloHandler as unknown as EloHandler,
     );
 
-    return { sessionManager, session, service, registry };
+    return { sessionManager, session, service, registry, gameResults };
 }
 
 function playTest(name: string, body: (fixture: Fixture) => Promise<void>): void {
@@ -249,6 +257,78 @@ playTest(`a move for a game that is not running is game-over`, async ({ service 
     const error = await rejection(() => service.playMove(BOT_PROFILE, `game-nope`, move([{ q: 1, r: 0 }, { q: 2, r: 0 }])));
 
     assert.equal(error.code, `game-over`);
+});
+
+playTest(`a resign hands the win to the opponent and applies the rating`, async ({ session, service, gameResults }) => {
+    session.isRatedGame = true;
+    for (const player of session.players) {
+        player.ratingAdjustment = { eloGain: 12, eloLoss: -12 };
+    }
+
+    await service.resignGame(BOT_PROFILE, GAME_ID);
+
+    assert.equal(session.state, `finished`);
+    assert.equal(session.finishReason, `surrender`);
+    assert.equal(session.winningPlayerId, HUMAN_SEAT);
+    for (const player of session.players) {
+        assert.deepEqual(player.ratingAdjusted, { eloScore: 1_012, gameCount: 1 });
+    }
+    assert.deepEqual(gameResults, [`win`, `loss`], `the human seat is the winner`);
+});
+
+playTest(`a second resign leaves the recorded result alone`, async ({ sessionManager, session, service }) => {
+    await sessionManager.surrenderSession(session, HUMAN_SEAT);
+
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, GAME_ID));
+
+    assert.equal(error.code, `game-over`);
+    assert.equal(session.state, `finished`);
+    assert.equal(session.winningPlayerId, BOT_SEAT);
+    assert.equal(session.finishReason, `surrender`);
+});
+
+playTest(`resigning before the game starts is game-over`, async ({ session, service }) => {
+    toLobby(session, { keepSeats: true });
+
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, GAME_ID));
+
+    assert.equal(error.code, `game-over`);
+    assert.equal(session.state, `lobby`);
+});
+
+playTest(`resigning a game the bot is not seated in is rejected`, async ({ session, service }) => {
+    session.players[1].profileId = `another-bot`;
+
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, GAME_ID));
+
+    assert.equal(error.code, null);
+    assert.equal(session.state, `in-game`);
+});
+
+playTest(`resigning an unknown game is game-over`, async ({ service }) => {
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, `game-nope`));
+
+    assert.equal(error.code, `game-over`);
+});
+
+playTest(`resigning a session that never left the lobby is game-over`, async ({ session, service }) => {
+    session.state = `lobby`;
+
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, GAME_ID));
+
+    assert.equal(error.code, `game-over`);
+    assert.equal(session.state, `lobby`);
+});
+
+playTest(`a resign that loses a race still answers game-over`, async ({ sessionManager, session, service }) => {
+    (sessionManager as unknown as { surrenderSession: () => Promise<void> }).surrenderSession = async () => {
+        throw new SessionError(`Game is not currently active`);
+    };
+
+    const error = await rejection(() => service.resignGame(BOT_PROFILE, GAME_ID));
+
+    assert.equal(error.code, `game-over`);
+    assert.equal(session.state, `in-game`, `nothing was applied`);
 });
 
 playTest(`an answer to an earlier position is stale-request`, async ({ sessionManager, session, service, registry }) => {

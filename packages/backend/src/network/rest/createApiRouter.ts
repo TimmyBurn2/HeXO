@@ -245,6 +245,13 @@ export class ApiRouter {
                 });
             });
 
+            router.post(`/bot/game/:gameId/resign`, async (req, res) => {
+                await this.handleBotApiRequest(req, res, async (bot) => {
+                    await this.botPlayService.resignGame(bot, req.params.gameId);
+                    res.json({ ok: true });
+                });
+            });
+
             router.post(`/bot/session/:sessionId/join`, async (req, res) => {
                 await this.handleBotApiRequest(req, res, async (bot) => {
                     await this.botPlayService.joinSession(bot, req.params.sessionId);
