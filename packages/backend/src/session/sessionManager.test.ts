@@ -230,3 +230,25 @@ test(`placeCells applies nothing once the turn clock has run out`, async () => {
     );
     assert.equal(session.gameState.cells.length, 1);
 });
+
+test(`a session is found by its game id, and a lobby by nothing`, () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+
+    assert.equal(sessionManager.getSessionByGameId(`game-play`), session);
+    assert.equal(sessionManager.getSessionByGameId(`game-other`), null);
+    /* A lobby has an empty game id; that must never match another lobby's. */
+    assert.equal(sessionManager.getSessionByGameId(``), null);
+});
+
+test(`a profile's seats are found across sessions`, () => {
+    const sessionManager = createPlaySessionManager();
+    createStartedSession(sessionManager);
+    createStartedSession(sessionManager, { sessionId: `session-play-2` });
+
+    const seats = sessionManager.getPlayerParticipationsByProfileId(HOST);
+
+    assert.equal(seats.length, 2);
+    assert.ok(seats.every((seat) => seat.role === `player` && seat.participant.profileId === HOST));
+    assert.equal(sessionManager.getPlayerParticipationsByProfileId(`nobody`).length, 0);
+});

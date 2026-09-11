@@ -1682,6 +1682,36 @@ export class SessionManager {
         ];
     }
 
+    /** Games carry a `gameId` only once they start; a lobby has none. */
+    getSessionByGameId(gameId: string): ServerGameSession | null {
+        if (!gameId) {
+            return null;
+        }
+
+        for (const session of this.sessions.values()) {
+            if (session.gameId === gameId) {
+                return session;
+            }
+        }
+
+        return null;
+    }
+
+    getPlayerParticipationsByProfileId(
+        profileId: string,
+    ): ServerSessionParticipation[] {
+        const participations: ServerSessionParticipation[] = [];
+        for (const session of this.sessions.values()) {
+            for (const player of session.players) {
+                if (player.profileId === profileId) {
+                    participations.push({ session, participant: player, role: `player` });
+                }
+            }
+        }
+
+        return participations;
+    }
+
     getParticipationsBySocketId(
         socketId: string,
     ): ServerSessionParticipation[] {
