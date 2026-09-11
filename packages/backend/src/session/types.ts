@@ -125,6 +125,16 @@ export type ParticipantJoinedEvent = {
     session: SessionInfo;
 };
 
+export type SessionGameStartedEvent = {
+    sessionId: string;
+};
+
+export type SessionGameFinishedEvent = {
+    sessionId: string;
+    reason: SessionFinishReason;
+    winningPlayerId: string | null;
+};
+
 export type SessionManagerEventHandlers = {
     lobbyUpdated?: (lobby: EventLobbyUpdated) => void,
     lobbyRemoved?: (event: EventLobbyRemoved) => void;
@@ -133,6 +143,13 @@ export type SessionManagerEventHandlers = {
     sessionChat?: (event: SessionChatEvent) => void;
     gameStateUpdated?: (payload: GameStateEvent) => void;
     gameCellPlacement?: (payload: GameCellPlaceEvent) => void,
+
+    /* Lifecycle edges the socket gateway does not need, because a client reads them
+     * off the session state it is already being sent. `gameFinished` is the only
+     * carrier of the finish reason; `gameStarted` names the start edge rather than
+     * leaving a subscriber to infer it from a state update. */
+    gameStarted?: (event: SessionGameStartedEvent) => void;
+    gameFinished?: (event: SessionGameFinishedEvent) => void;
 };
 
 export type RematchRequestResult = {
