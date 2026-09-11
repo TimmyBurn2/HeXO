@@ -72,6 +72,7 @@ function createRouter(overrides: {
             getGameSnapshot: () => Promise.resolve({ gameId: `game-1`, board: { to_move: `x`, cells: [] }, clock: { mode: `unlimited` }, status: `in-progress` }),
             joinSession: () => Promise.resolve(),
             playMove: () => Promise.resolve(),
+            resignGame: () => Promise.resolve(),
             ...overrides.botPlayService,
         } as never,
         { attach: () => { }, open: () => { }, getSocketId: (id: string) => `bot:${id}` } as never,
@@ -193,6 +194,7 @@ test(`the play routes reject a request without a bot token`, async () => {
             [`GET`, `/bot/stream`],
             [`GET`, `/bot/game/game-1`],
             [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/game/game-1/resign`],
             [`POST`, `/bot/session/abc123/join`],
         ] as const) {
             const response = await fetch(`${baseUrl}${path}`, { method });
@@ -211,6 +213,7 @@ test(`the play routes do not exist while the flag is off`, async () => {
             [`GET`, `/bot/stream`],
             [`GET`, `/bot/game/game-1`],
             [`POST`, `/bot/game/game-1/move`],
+            [`POST`, `/bot/game/game-1/resign`],
             [`POST`, `/bot/session/abc123/join`],
         ] as const) {
             const response = await fetch(`${baseUrl}${path}`, { method });
@@ -336,6 +339,27 @@ test(`joining a lobby answers ok`, async () => {
 
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { ok: true });
+    });
+});
+
+test(`resigning a game answers ok`, async () => {
+    const seen: string[] = [];
+    const router = createRouter({
+        botToken: botAccount,
+        botPlayService: {
+            resignGame: (_bot: AccountUserProfile, gameId: string) => {
+                seen.push(gameId);
+                return Promise.resolve();
+            },
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bot/game/game-1/resign`, { method: `POST` });
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { ok: true });
+        assert.deepEqual(seen, [`game-1`]);
     });
 });
 
