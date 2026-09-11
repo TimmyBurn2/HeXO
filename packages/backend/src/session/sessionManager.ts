@@ -98,7 +98,7 @@ export type RematchCreateResult = {
     socketMapping: Record<string, string>;
 };
 
-const MAX_PLAYERS_PER_SESSION = 2;
+export const MAX_PLAYERS_PER_SESSION = 2;
 const MAX_SESSION_CHAT_MESSAGES = 100;
 
 @injectable()
@@ -403,6 +403,7 @@ export class SessionManager {
                         deviceId: params.deviceId,
                         profileId,
                         displayName,
+                        isBot: params.profile?.kind === `bot`,
 
                         rating: playerRating,
                         ratingAdjustment: null,
@@ -563,6 +564,12 @@ export class SessionManager {
     async requestDraw(session: ServerGameSession, participantId: string) {
         await session.lock.runExclusive(async () => {
             this.assertCanParticipateInDraw(session, participantId);
+
+            if (session.players.some((player) => player.isBot)) {
+                /* Rejected at the source: no offer is stored, so no window exists in
+                 * which a bot would have to answer one. */
+                throw new SessionError(`A game against a bot cannot end in a draw.`);
+            }
 
             if (session.drawRequest) {
                 if (session.drawRequest === participantId) {
@@ -931,6 +938,7 @@ export class SessionManager {
                             ratingAdjustment: null,
                             ratingAdjusted: null,
 
+                            isBot: player.isBot,
                             profileId: player.profileId,
                         };
                     },
