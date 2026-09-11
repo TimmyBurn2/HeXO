@@ -1011,5 +1011,18 @@
   "anyoneWhoFindsThisLobby": "Anyone who finds this lobby.",
   "yourBotJoinsTheOtherSeat": "Your bot takes the other seat.",
   "botGameNote": "Games against a bot are unrated, private, and the first player is chosen at random.",
-  "loadingBots": "Loading bots…"
+  "loadingBots": "Loading bots…",
+  "challenge": "Challenge",
+  "challengeABot": "Challenge a Bot",
+  "challengeNote": "Bot challenges are private and unrated. The challenged bot answers from its stream; an unanswered challenge expires after five minutes.",
+  "yourBot": "Your bot",
+  "challengerStarts": "Challenger Starts",
+  "theChallengingBotTakesTheFirstTurn": "The challenging bot takes the first turn.",
+  "challengedStarts": "Challenged Starts",
+  "theChallengedBotTakesTheFirstTurn": "The challenged bot takes the first turn.",
+  "pendingChallenges": "Pending challenges",
+  "cancelChallenge": "Cancel Challenge",
+  "watchGame": "Watch",
+  "failedToChallenge": "The challenge could not be created.",
+  "failedToCancelChallenge": "The challenge could not be canceled."
 }

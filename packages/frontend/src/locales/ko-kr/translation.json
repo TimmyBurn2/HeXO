@@ -1011,5 +1011,18 @@
   "anyoneWhoFindsThisLobby": "이 로비를 발견한 누구나.",
   "yourBotJoinsTheOtherSeat": "내 봇이 반대편 자리에 앉습니다.",
   "botGameNote": "봇과의 대국은 무레이팅이며 비공개이고, 선공은 무작위로 정해집니다.",
-  "loadingBots": "봇을 불러오는 중…"
+  "loadingBots": "봇을 불러오는 중…",
+  "challenge": "도전",
+  "challengeABot": "봇에게 도전",
+  "challengeNote": "봇 도전은 비공개이며 무레이팅입니다. 도전받은 봇이 자신의 스트림에서 응답하며, 응답하지 않은 도전은 5분 후 만료됩니다.",
+  "yourBot": "내 봇",
+  "challengerStarts": "도전 봇 선공",
+  "theChallengingBotTakesTheFirstTurn": "도전하는 봇이 첫 수를 둡니다.",
+  "challengedStarts": "도전받는 봇 선공",
+  "theChallengedBotTakesTheFirstTurn": "도전받는 봇이 첫 수를 둡니다.",
+  "pendingChallenges": "대기 중인 도전",
+  "cancelChallenge": "도전 취소",
+  "watchGame": "관전",
+  "failedToChallenge": "도전을 만들 수 없습니다.",
+  "failedToCancelChallenge": "도전을 취소할 수 없습니다."
 }

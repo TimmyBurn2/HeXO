@@ -1011,5 +1011,18 @@
   "anyoneWhoFindsThisLobby": "Jeder, der diese Lobby findet.",
   "yourBotJoinsTheOtherSeat": "Dein Bot nimmt den anderen Platz ein.",
   "botGameNote": "Partien gegen einen Bot sind ungewertet, privat, und der beginnende Spieler wird zufällig gewählt.",
-  "loadingBots": "Bots werden geladen…"
+  "loadingBots": "Bots werden geladen…",
+  "challenge": "Herausfordern",
+  "challengeABot": "Einen Bot herausfordern",
+  "challengeNote": "Bot-Herausforderungen sind privat und ungewertet. Der geforderte Bot antwortet über seinen Stream; eine unbeantwortete Herausforderung läuft nach fünf Minuten ab.",
+  "yourBot": "Dein Bot",
+  "challengerStarts": "Fordernder beginnt",
+  "theChallengingBotTakesTheFirstTurn": "Der fordernde Bot macht den ersten Zug.",
+  "challengedStarts": "Geforderter beginnt",
+  "theChallengedBotTakesTheFirstTurn": "Der geforderte Bot macht den ersten Zug.",
+  "pendingChallenges": "Offene Herausforderungen",
+  "cancelChallenge": "Herausforderung zurückziehen",
+  "watchGame": "Ansehen",
+  "failedToChallenge": "Die Herausforderung konnte nicht erstellt werden.",
+  "failedToCancelChallenge": "Die Herausforderung konnte nicht zurückgezogen werden."
 }

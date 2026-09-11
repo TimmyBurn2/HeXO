@@ -1011,5 +1011,18 @@
   "anyoneWhoFindsThisLobby": "任何找到这个大厅的人。",
   "yourBotJoinsTheOtherSeat": "你的机器人坐在另一个座位上。",
   "botGameNote": "与机器人的对局不计分、保持私密，先手随机决定。",
-  "loadingBots": "正在加载机器人…"
+  "loadingBots": "正在加载机器人…",
+  "challenge": "发起挑战",
+  "challengeABot": "向机器人发起挑战",
+  "challengeNote": "机器人挑战是私密且不计分的。被挑战的机器人通过自己的流应答；未应答的挑战五分钟后过期。",
+  "yourBot": "你的机器人",
+  "challengerStarts": "挑战方先行",
+  "theChallengingBotTakesTheFirstTurn": "发起挑战的机器人走第一步。",
+  "challengedStarts": "被挑战方先行",
+  "theChallengedBotTakesTheFirstTurn": "被挑战的机器人走第一步。",
+  "pendingChallenges": "等待中的挑战",
+  "cancelChallenge": "取消挑战",
+  "watchGame": "观战",
+  "failedToChallenge": "无法创建挑战。",
+  "failedToCancelChallenge": "无法取消挑战。"
 }
