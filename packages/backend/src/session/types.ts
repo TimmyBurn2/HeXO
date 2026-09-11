@@ -85,6 +85,9 @@ export type ServerGameSession = {
     rematchAcceptedPlayerIds: string[];
     isRatedGame: boolean;
     reservedPlayerProfileIds: string[];
+    /* Set while the lobby is the private session a pending challenge rides; the
+     * reserved-lobby reaper and the concurrent-game count read it, nothing else. */
+    pendingChallengeId: string | null;
     tournament: SessionTournamentInfo | null;
 
     chatNames: Record<SessionChatSenderId, string>;
@@ -108,6 +111,7 @@ export type CreateSessionParams = {
     client: RequestClientInfo;
     lobbyOptions: LobbyOptions;
     reservedPlayerProfileIds?: string[];
+    pendingChallengeId?: string;
     tournament?: SessionTournamentInfo | null;
 };
 
@@ -238,6 +242,7 @@ export function createGameSession(
     gameOptions: LobbyOptions,
     options: {
         reservedPlayerProfileIds?: string[];
+        pendingChallengeId?: string;
         tournament?: SessionTournamentInfo | null;
     } = {},
 ): ServerGameSession {
@@ -265,6 +270,7 @@ export function createGameSession(
         reservedPlayerProfileIds: [
             ...(options.reservedPlayerProfileIds ?? []),
         ],
+        pendingChallengeId: options.pendingChallengeId ?? null,
         tournament: options.tournament ? { ...options.tournament } : null,
         gameId: ``,
         gameState: createEmptyGameState(),

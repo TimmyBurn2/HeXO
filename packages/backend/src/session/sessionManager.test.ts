@@ -8,7 +8,7 @@ import pino from 'pino';
 
 import { GameSimulation } from '../simulation/gameSimulation';
 import { GameTimeControlManager } from '../simulation/gameTimeControlManager';
-import { SessionManager } from './sessionManager';
+import { RESERVED_LOBBY_ABANDONED_AFTER_MS, SessionManager } from './sessionManager';
 import { createGameSession, type ServerGameSession } from './types';
 
 class DelayedGameHistoryRepository {
@@ -273,4 +273,73 @@ test(`a draw is still offerable between two humans`, async () => {
     await sessionManager.requestDraw(session, HOST);
 
     assert.equal(session.drawRequest, HOST);
+});
+
+function createReservedBotLobby(
+    sessionManager: SessionManager,
+    options: { sessionId?: string, pendingChallengeId?: string } = {},
+): ServerGameSession {
+    const session = createGameSession((options.sessionId ?? `session-reserved`) as SessionId, {
+        visibility: `private`,
+        rated: false,
+        timeControl: { mode: `unlimited` },
+        firstPlayer: `random`,
+    }, {
+        reservedPlayerProfileIds: [HOST, GUEST],
+        pendingChallengeId: options.pendingChallengeId,
+    });
+
+    session.players.push({
+        id: HOST,
+        deviceId: `device-${HOST}`,
+        profileId: HOST,
+        displayName: HOST,
+        rating: { eloScore: 1_000, gameCount: 0 },
+        ratingAdjustment: null,
+        ratingAdjusted: null,
+        isBot: true,
+        connection: { status: `connected`, socketId: `socket-${HOST}` },
+    });
+    session.hadPlayers = true;
+
+    (sessionManager as unknown as {
+        sessions: Map<string, ServerGameSession>;
+    }).sessions.set(session.id, session);
+
+    return session;
+}
+
+test(`a pending challenge lobby outlives the reserved-lobby reaper`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const challenge = createReservedBotLobby(sessionManager, { pendingChallengeId: `challenge-1` });
+    const play = createReservedBotLobby(sessionManager, { sessionId: `session-play-flow` });
+    challenge.createdAt = Date.now() - RESERVED_LOBBY_ABANDONED_AFTER_MS - 1_000;
+    play.createdAt = Date.now() - RESERVED_LOBBY_ABANDONED_AFTER_MS - 1_000;
+
+    await sessionManager.tickAllSessions();
+
+    assert.equal(sessionManager.getSession(challenge.id), challenge, `the TTL sweep owns challenge expiry`);
+    assert.equal(sessionManager.getSession(play.id), null, `an abandoned Play is still reaped`);
+});
+
+test(`deleteLobby removes a lobby and refuses a started game`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const lobby = createReservedBotLobby(sessionManager);
+    const started = createStartedSession(sessionManager);
+
+    assert.equal(await sessionManager.deleteLobby(lobby, `challenge-declined`), true);
+    assert.equal(sessionManager.getSession(lobby.id), null);
+
+    assert.equal(await sessionManager.deleteLobby(started, `challenge-declined`), false);
+    assert.equal(sessionManager.getSession(started.id), started);
+});
+
+test(`a pending challenge does not spend a concurrent-game slot`, () => {
+    const sessionManager = createPlaySessionManager();
+    const lobby = createReservedBotLobby(sessionManager, { pendingChallengeId: `challenge-1` });
+
+    assert.equal(sessionManager.countActivePlayerSessionsByProfileId(HOST), 0);
+
+    lobby.pendingChallengeId = null;
+    assert.equal(sessionManager.countActivePlayerSessionsByProfileId(HOST), 1, `an ordinary lobby seat still counts`);
 });

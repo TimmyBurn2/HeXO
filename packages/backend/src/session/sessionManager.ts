@@ -189,6 +189,22 @@ export class SessionManager {
         });
     }
 
+    /**
+     * Removes a lobby that will never start — a declined or expired challenge.
+     * The lock plus the lobby-state check race it against an accept: whoever wins
+     * the lock decides, the loser finds either a started game or no session.
+     */
+    async deleteLobby(session: ServerGameSession, reason: string): Promise<boolean> {
+        return await session.lock.runExclusive(() => {
+            if (this.sessions.get(session.id) !== session || session.state !== `lobby`) {
+                return false;
+            }
+
+            this.deleteSession(session, reason);
+            return true;
+        });
+    }
+
     getTerminalSessionStatuses(now = Date.now()): TerminalSessionStatus[] {
         return this.listStoredSessions().map((session) => ({
             sessionId: session.id,
@@ -265,6 +281,7 @@ export class SessionManager {
         const sessionId = this.createSessionId();
         const session = createGameSession(sessionId, params.lobbyOptions, {
             reservedPlayerProfileIds: params.reservedPlayerProfileIds,
+            pendingChallengeId: params.pendingChallengeId,
             tournament: params.tournament ?? null,
         });
 
@@ -1193,6 +1210,7 @@ export class SessionManager {
             case `lobby`: {
                 if (
                     session.tournament === null
+                    && session.pendingChallengeId === null
                     && session.reservedPlayerProfileIds.length > 0
                     && session.players.length > 0
                     && session.players.every((player) => player.isBot)
@@ -1745,10 +1763,15 @@ export class SessionManager {
         return participations;
     }
 
-    /** Lobbies count too: refusing only once a game starts is refusing too late. */
+    /** Lobbies count too: refusing only once a game starts is refusing too late. A
+     * pending challenge does not count — its seat becomes a real game only when the
+     * target accepts, and the challenger should not spend slots on offers. */
     countActivePlayerSessionsByProfileId(profileId: string): number {
         return this.getPlayerParticipationsByProfileId(profileId)
             .filter((participation) => participation.session.state !== `finished`)
+            .filter((participation) =>
+                participation.session.state !== `lobby`
+                || participation.session.pendingChallengeId === null)
             .length;
     }
 
