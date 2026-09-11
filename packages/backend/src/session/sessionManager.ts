@@ -22,8 +22,11 @@ import type {
 } from "@ih3t/shared";
 import {
     ABORT_GAME_MAX_MOVES,
+    applyGameMove,
     buildPlayerTileConfigMap,
+    cloneGameState,
     DRAW_REQUEST_RETRY_TURNS,
+    GameRuleError,
 } from "@ih3t/shared";
 import type { Logger } from "pino";
 import { inject, injectable } from "tsyringe";
@@ -641,10 +644,71 @@ export class SessionManager {
         );
     }
 
+    /**
+     * Applies a whole turn under a single lock. Every placement is dry-run against a
+     * clone first, so a rejected second stone leaves the board untouched — a half-played
+     * turn is a state no caller can recover from.
+     */
+    async placeCells(
+        session: ServerGameSession,
+        playerId: string,
+        cells: readonly HexCoordinate[],
+    ) {
+        await session.lock.runExclusive(async () => {
+            if (session.state !== `in-game`) {
+                throw new SessionError(`Game is not currently active`);
+            }
+
+            if (!session.players.some((participant) => participant.id === playerId)) {
+                throw new SessionError(`You are not part of this session`);
+            }
+
+            /* One instant for the whole turn: judging the second stone against a later
+             * clock read is how a half-played turn would become reachable. */
+            const timestamp = Date.now();
+            try {
+                this.timeControl.ensureTurnHasTimeRemaining(session, timestamp);
+            } catch (error: unknown) {
+                if (error instanceof GameTimeControlError) {
+                    throw new SessionError(error.message);
+                }
+
+                throw error;
+            }
+
+            const simulated = cloneGameState(session.gameState);
+            for (const cell of cells) {
+                if (simulated.winner) {
+                    /* A win on the first stone ends the turn; the rest is not played. */
+                    break;
+                }
+
+                try {
+                    applyGameMove(simulated, { playerId, x: cell.x, y: cell.y });
+                } catch (error: unknown) {
+                    if (error instanceof GameRuleError) {
+                        throw new SessionError(error.message);
+                    }
+
+                    throw error;
+                }
+            }
+
+            for (const cell of cells) {
+                if (session.state !== `in-game`) {
+                    break;
+                }
+
+                await this.placeCellLocked(session, playerId, cell, timestamp);
+            }
+        });
+    }
+
     private async placeCellLocked(
         session: ServerGameSession,
         playerId: string,
         cell: HexCoordinate,
+        now?: number,
     ) {
         assert(session.lock.isLocked());
 
@@ -659,7 +723,7 @@ export class SessionManager {
         }
 
         let moveResult;
-        const timestamp = Date.now();
+        const timestamp = now ?? Date.now();
         const turnExpiresAt = session.currentTurnExpiresAt;
         try {
             this.timeControl.ensureTurnHasTimeRemaining(session, timestamp);
