@@ -85,3 +85,98 @@ test(`finishing a session waits for its durable game result`, async () => {
     assert.equal(gameHistoryRepository.finalized, true);
     assert.equal(finishedSession.state.status, `finished`);
 });
+
+class FakeGameHistoryRepository {
+    readonly moves: unknown[] = [];
+
+    appendMove(...args: unknown[]): Promise<void> {
+        this.moves.push(args);
+        return Promise.resolve();
+    }
+
+    finishGame(): Promise<void> {
+        return Promise.resolve();
+    }
+}
+
+const HOST = `player-host`;
+const GUEST = `player-guest`;
+
+function createStartedSession(
+    sessionManager: SessionManager,
+    options: { sessionId?: string } = {},
+): ServerGameSession {
+    const sessionId = (options.sessionId ?? `session-play`) as SessionId;
+    const session = createGameSession(sessionId, {
+        visibility: `private`,
+        rated: false,
+        timeControl: { mode: `unlimited` },
+        firstPlayer: `host`,
+    });
+
+    for (const id of [HOST, GUEST]) {
+        session.players.push({
+            id,
+            deviceId: `device-${id}`,
+            profileId: id,
+            displayName: id,
+            rating: { eloScore: 1_000, gameCount: 0 },
+            ratingAdjustment: null,
+            ratingAdjusted: null,
+            connection: { status: `connected`, socketId: `socket-${id}` },
+        });
+    }
+
+    session.state = `in-game`;
+    session.startedAt = Date.now();
+    session.gameId = `game-play`;
+    new GameSimulation().startSession(session.gameState, [HOST, GUEST], HOST);
+
+    (sessionManager as unknown as {
+        sessions: Map<string, ServerGameSession>;
+    }).sessions.set(sessionId, session);
+
+    return session;
+}
+
+function createPlaySessionManager(): SessionManager {
+    return createSessionManager(new FakeGameHistoryRepository() as unknown as DelayedGameHistoryRepository);
+}
+
+test(`an added subscriber hears the finish without displacing the primary one`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+    const primary: string[] = [];
+    const extra: string[] = [];
+
+    sessionManager.setEventHandlers({ gameFinished: () => primary.push(`primary`) });
+    const unsubscribe = sessionManager.addEventHandlers({
+        gameFinished: (event) => extra.push(event.reason),
+    });
+
+    await sessionManager.surrenderSession(session, HOST);
+
+    assert.deepEqual(primary, [`primary`]);
+    assert.deepEqual(extra, [`surrender`]);
+
+    unsubscribe();
+    const second = createStartedSession(sessionManager, { sessionId: `session-play-2` });
+    await sessionManager.surrenderSession(second, HOST);
+
+    assert.deepEqual(primary, [`primary`, `primary`]);
+    assert.deepEqual(extra, [`surrender`], `an unsubscribed handler must stop hearing events`);
+});
+
+test(`a subscriber that throws does not break the game it watches`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+    sessionManager.addEventHandlers({
+        gameCellPlacement: () => {
+            throw new Error(`subscriber is broken`);
+        },
+    });
+
+    await sessionManager.placeCell(session, HOST, { x: 0, y: 0 });
+
+    assert.equal(session.gameState.cells.length, 1);
+});

@@ -101,6 +101,7 @@ const MAX_SESSION_CHAT_MESSAGES = 100;
 @injectable()
 export class SessionManager {
     private eventHandlers: SessionManagerEventHandlers = {};
+    private readonly extraEventHandlers = new Set<SessionManagerEventHandlers>();
     private readonly logger: Logger;
     private readonly sessions = new Map<string, ServerGameSession>();
     private readonly shutdownHook: ShutdownHook;
@@ -219,6 +220,34 @@ export class SessionManager {
 
     setEventHandlers(eventHandlers: SessionManagerEventHandlers): void {
         this.eventHandlers = eventHandlers;
+    }
+
+    /**
+     * Adds a subscriber beside the primary one, which stays with the socket gateway.
+     * A late subscriber used to be silently wiped, because `setEventHandlers` replaces.
+     * Returns the unsubscribe.
+     */
+    addEventHandlers(eventHandlers: SessionManagerEventHandlers): () => void {
+        this.extraEventHandlers.add(eventHandlers);
+        return () => this.extraEventHandlers.delete(eventHandlers);
+    }
+
+    private dispatch<TEvent extends keyof SessionManagerEventHandlers>(
+        event: TEvent,
+        payload: Parameters<NonNullable<SessionManagerEventHandlers[TEvent]>>[0],
+    ): void {
+        const primary = this.eventHandlers[event] as ((payload: unknown) => void) | undefined;
+        primary?.(payload);
+
+        for (const eventHandlers of this.extraEventHandlers) {
+            const handler = eventHandlers[event] as ((payload: unknown) => void) | undefined;
+            try {
+                handler?.(payload);
+            } catch (error: unknown) {
+                /* A secondary subscriber must never break the game it is watching. */
+                this.logger.error({ err: error, event: `session.subscriber.failed`, sessionEvent: event }, `Session event subscriber failed`);
+            }
+        }
     }
 
     createSession(params: CreateSessionParams): CreateSessionResponse {
@@ -706,7 +735,7 @@ export class SessionManager {
             -MAX_SESSION_CHAT_MESSAGES,
         );
 
-        this.eventHandlers.sessionChat?.({
+        this.dispatch(`sessionChat`, {
             sessionId: session.id,
             message: chatMessage,
             senderDisplayName: participant.displayName,
@@ -904,7 +933,7 @@ export class SessionManager {
 
                 if (originalSession.id !== rematchSession.id) {
                     /* remove the original session */
-                    this.eventHandlers.lobbyRemoved?.({
+                    this.dispatch(`lobbyRemoved`, {
                         id: originalSession.id,
                     });
                 }
@@ -1037,7 +1066,7 @@ export class SessionManager {
 
         this.timeControl.clearSession(session.id);
         this.sessions.delete(session.id);
-        this.eventHandlers.lobbyRemoved?.({ id: session.id });
+        this.dispatch(`lobbyRemoved`, { id: session.id });
         this.shutdownHook.tryShutdown();
     }
 
@@ -1153,6 +1182,7 @@ export class SessionManager {
                     },
                     `Session started`,
                 );
+                this.dispatch(`gameStarted`, { sessionId: session.id });
                 break;
             }
 
@@ -1252,9 +1282,10 @@ export class SessionManager {
         this.timeControl.clearSession(session.id);
 
         /* finished sessions are removed from the list */
-        this.eventHandlers.lobbyRemoved?.({ id: session.id });
+        this.dispatch(`lobbyRemoved`, { id: session.id });
 
         this.emitSessionUpdated(session, [`players`, `state`]);
+        this.dispatch(`gameFinished`, { sessionId: session.id, reason, winningPlayerId });
         this.shutdownHook.tryShutdown();
 
         this.logger.info(
@@ -1452,7 +1483,7 @@ export class SessionManager {
         }
 
         const lobbyInfo = this.toLobbyInfo(session);
-        this.eventHandlers.lobbyUpdated?.(lobbyInfo);
+        this.dispatch(`lobbyUpdated`, lobbyInfo);
     }
 
     private emitSessionUpdated(
@@ -1470,14 +1501,14 @@ export class SessionManager {
             Object.assign(partialInfo, fullInfo);
         }
 
-        this.eventHandlers.sessionUpdated?.({
+        this.dispatch(`sessionUpdated`, {
             sessionId: session.id,
             session: partialInfo,
         });
     }
 
     private emitGameState(session: ServerGameSession): void {
-        this.eventHandlers.gameStateUpdated?.({
+        this.dispatch(`gameStateUpdated`, {
             sessionId: session.id,
             gameState: this.getClientGameState(session),
         });
@@ -1488,7 +1519,7 @@ export class SessionManager {
         delete state.cells;
         delete state.playerTiles;
 
-        this.eventHandlers.gameCellPlacement?.({
+        this.dispatch(`gameCellPlacement`, {
             sessionId: session.id,
             state,
             cell: cell,
