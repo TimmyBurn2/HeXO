@@ -1,6 +1,6 @@
 import { Button, buttonVariants } from '@/components/ui/button';
-import type { AccountEloHistory, AccountStatistics, FinishedGamesPage, LobbyInfo, PublicAccountProfile } from '@ih3t/shared';
-import { type ReactNode, useMemo } from 'react';
+import type { AccountEloHistory, AccountStatistics, BotAccount, FinishedGamesPage, LobbyInfo, PublicAccountProfile } from '@ih3t/shared';
+import { type ReactNode, useMemo, useState } from 'react';
 import React from 'react';
 import { Link } from 'react-router';
 import { toast } from 'react-toastify';
@@ -33,6 +33,7 @@ import {
     formatWorldRank,
 } from '../utils/profileStats';
 import AccountPicture from './AccountPicture';
+import ChallengeDialog from './ChallengeDialog';
 import FinishedGameCard from './FinishedGameCard';
 import PageCorpus from './PageCorpus';
 import { useTranslation } from 'react-i18next'
@@ -58,6 +59,8 @@ type ProfileScreenProps = {
     statisticsErrorMessage: string | null
     recentGamesErrorMessage: string | null
     isPublicView: boolean
+    /** The signed-in player's bots; null while the flag is off hides the Challenge entry. */
+    ownBots?: BotAccount[] | null
 };
 
 type PrimaryStatCardProps = {
@@ -479,10 +482,14 @@ function ProfileScreen({
     statisticsErrorMessage,
     recentGamesErrorMessage,
     isPublicView,
+    ownBots = null,
 }: Readonly<ProfileScreenProps>) {
     const { t } = useTranslation()
     const intlFormatProvider = useIntlFormatProvider();
     const now = useSsrCompatibleNow();
+    const [isChallenging, setIsChallenging] = useState(false);
+    /* Owners initiate: a Challenge entry only makes sense for a bot someone can send. */
+    const canChallenge = account?.kind === `bot` && (ownBots?.length ?? 0) > 0;
 
     const handleSignIn = async () => {
         try {
@@ -602,6 +609,15 @@ function ProfileScreen({
                                                 <AccountMetaItem label={t('memberSince', 'Member Since')} value={memberSinceLabel ?? `Unavailable`} />
                                                 <AccountMetaItem label={t('lastSeen', 'Last Seen')} value={lastSeenLabel ?? `Unavailable`} />
                                             </div>
+
+                                            {canChallenge ? (
+                                                <Button
+                                                    onClick={() => setIsChallenging(true)}
+                                                    variant="secondary" size="sm" className="mt-4"
+                                                >
+                                                    {t('challenge', 'Challenge')}
+                                                </Button>
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>
@@ -738,6 +754,15 @@ function ProfileScreen({
                     </div>
                 )}
             </div>
+
+            {account && canChallenge ? (
+                <ChallengeDialog
+                    isOpen={isChallenging}
+                    onClose={() => setIsChallenging(false)}
+                    target={account}
+                    ownBots={ownBots ?? []}
+                />
+            ) : null}
         </PageCorpus>
     );
 }

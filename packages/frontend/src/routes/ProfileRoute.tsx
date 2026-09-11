@@ -4,6 +4,7 @@ import PageMetadata, { DEFAULT_PAGE_TITLE } from '../components/PageMetadata';
 import ProfileScreen from '../components/ProfileScreen';
 import {
     useQueryAccount,
+    useQueryAccountBots,
     useQueryProfile,
     useQueryProfileStatistics,
 } from '../query/accountClient';
@@ -24,6 +25,11 @@ function ProfileRoute() {
     const recentGamesQuery = useQueryProfileGames(targetProfileId);
 
     const availableSessionsQuery = useQueryAvailableSessions();
+    /* Null while the flag is off, which is what hides the Challenge entry. */
+    const accountBotsQuery = useQueryAccountBots({
+        enabled: !accountQuery.isLoading && Boolean(accountQuery.data?.user),
+    });
+    const ownBots = accountBotsQuery.data?.bots ?? null;
 
     const liveGame = availableSessionsQuery.data?.find((session) =>
         session.startedAt !== null && session.players.some((player) => player.profileId === targetProfileId)) ?? null;
@@ -71,6 +77,7 @@ function ProfileRoute() {
                 statisticsErrorMessage={statisticsError instanceof Error ? statisticsError.message : null}
                 recentGamesErrorMessage={recentGamesQuery.error instanceof Error ? recentGamesQuery.error.message : null}
                 isPublicView={isPublicProfileRoute}
+                ownBots={ownBots}
             />
         </>
     );
