@@ -38,7 +38,7 @@ export class BotPlayService {
 
     async getAccount(bot: AccountUserProfile): Promise<BotAccountInfoResponse> {
         const account = await this.botAccountRepository.findById(bot.id);
-        const owner = account ? await this.authRepository.getUserProfileById(account.ownerProfileId) : null;
+        const owner = account?.ownerProfileId ? await this.authRepository.getUserProfileById(account.ownerProfileId) : null;
 
         return {
             bot: await this.botPlayerMapper.fromProfile(bot),
