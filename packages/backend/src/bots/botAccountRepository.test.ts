@@ -8,6 +8,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import pino from 'pino';
 
 import { botAccountsMigration } from '../persistence/migrations/013-bot-accounts';
+import { houseBotsMigration } from '../persistence/migrations/015-house-bots';
 import type { MongoDatabase } from '../persistence/mongoClient';
 import { AUTH_USERS_COLLECTION_NAME, BOT_TOKENS_COLLECTION_NAME } from '../persistence/mongoCollections';
 import { BotAccountRepository } from './botAccountRepository';
@@ -145,5 +146,36 @@ test(`an invalid bot id is rejected instead of throwing`, async () => {
     await withRepository(async ({ repository }) => {
         assert.equal(await repository.findByOwner(`owner-1`, `not-an-object-id`), null);
         assert.equal(await repository.softDelete(`owner-1`, `not-an-object-id`), false);
+    });
+});
+
+test(`migration 015 gives every bot a driver; seeding the house bots is idempotent`, async () => {
+    await withRepository(async ({ repository, database }) => {
+        const users = database.collection(AUTH_USERS_COLLECTION_NAME);
+        const communityBot = await repository.create(`owner-1`, `Strix`);
+        await users.updateOne({ _id: new ObjectId(communityBot.id) }, { $unset: { driver: `` } });
+
+        const context = { database, logger: pino({ level: `silent` }) };
+        await houseBotsMigration.up(context);
+        await houseBotsMigration.up(context);
+        assert.deepEqual((await users.findOne({ _id: new ObjectId(communityBot.id) }))?.driver, { type: `stream` });
+        assert.deepEqual(await repository.listHouseBots(), [], `the migration seeds nothing: a flag-off server has no bot user`);
+
+        await repository.seedHouseBots();
+        const seeded = await repository.listHouseBots();
+        await users.updateOne({ houseKey: `house:seal` }, { $set: { name: `Sealy` } });
+        await repository.seedHouseBots();
+
+        assert.deepEqual(seeded.map((bot) => [bot.key, bot.account.username, bot.account.ownerProfileId, bot.driver]), [
+            [`house:seal`, `SealBot`, null, { type: `engine`, engine: `seal` }],
+        ]);
+
+        /* A re-seed keeps the id and an operator's rename: the doc is the truth after the seed. */
+        const again = await repository.listHouseBots();
+        assert.deepEqual(again.map((bot) => bot.account.id), seeded.map((bot) => bot.account.id));
+        assert.equal(again[0]?.account.username, `Sealy`);
+        assert.equal(await users.countDocuments({ kind: `bot`, houseKey: { $exists: true } }), 1);
+        /* A house bot is an ordinary null-owner bot for every other query. */
+        assert.equal((await repository.listAll()).length, 2);
     });
 });
