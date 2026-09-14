@@ -21,7 +21,7 @@ type LobbyScreenProps = {
     houseBots?: HouseBotsResponse | null
     ownBots?: BotAccount[] | null
     onlineBots?: BotListing[] | null
-    onHostGame: (request: CreateSessionRequest, botProfileId?: string) => void
+    onHostGame: (request: CreateSessionRequest) => void
     onJoinGame: (sessionId: string) => void
     onOpenSandbox: () => void
     onViewFinishedGames: () => void

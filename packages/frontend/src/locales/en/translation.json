@@ -1022,7 +1022,7 @@
   "playABot": "Play a Bot",
   "playBot": "Play",
   "yourBotJoinsTheOtherSeat": "Your bot takes the other seat.",
-  "botGameNote": "Games against a bot are unrated, private, and the first player is chosen at random.",
+  "botGameNote": "Games against a bot are unrated and the first player is chosen at random.",
   "loadingBots": "Loading bots…",
   "aCommunityBotOnlineRightNow": "A community bot, online right now."
 }

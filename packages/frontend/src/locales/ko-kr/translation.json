@@ -1022,7 +1022,7 @@
   "playABot": "봇과 대국하기",
   "playBot": "대국",
   "yourBotJoinsTheOtherSeat": "내 봇이 반대편 자리에 앉습니다.",
-  "botGameNote": "봇과의 대국은 무레이팅이며 비공개이고, 선공은 무작위로 정해집니다.",
+  "botGameNote": "봇과의 대국은 무레이팅이며, 선공은 무작위로 정해집니다.",
   "loadingBots": "봇을 불러오는 중…",
   "aCommunityBotOnlineRightNow": "지금 접속 중인 커뮤니티 봇입니다."
 }

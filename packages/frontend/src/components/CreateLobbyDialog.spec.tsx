@@ -246,9 +246,8 @@ const ownBot: BotAccount = {
   tokenRotatedAt: null,
 }
 
-test('picking one of your bots submits an unrated request naming the bot', async ({ mount }) => {
+test('picking one of your bots submits it as the opponent, unrated, with the chosen visibility', async ({ mount }) => {
   let createRequest: CreateSessionRequest | null = null
-  let botProfileId: string | undefined
 
   const component = await mount(
     <CreateLobbyDialog
@@ -257,10 +256,9 @@ test('picking one of your bots submits an unrated request naming the bot', async
       account={authenticatedAccount}
       houseBots={houseBots}
       ownBots={[ownBot]}
-      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: false }]}
-      onCreateLobby={(request, botId) => {
+      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: true }]}
+      onCreateLobby={(request) => {
         createRequest = request
-        botProfileId = botId
       }}
     />
   )
@@ -269,17 +267,17 @@ test('picking one of your bots submits an unrated request naming the bot', async
   await expect(component.getByText('Strix', { exact: true })).toBeVisible()
   await expect(component.getByRole('button', { name: /^Wren/ })).toBeVisible()
 
-  /* No rated, first-player or visibility picker: the server decides all three for a community bot. */
+  /* No rated or first-player picker: the server decides both for a bot seat. Visibility is still the player's. */
   await component.getByRole('button', { name: /Customize Match|Advanced Settings/i }).click()
   await expect(component.getByText(/Rated game with ELO/i)).toHaveCount(0)
   await expect(component.getByText(/Host Starts/i)).toHaveCount(0)
-  await expect(component.getByText(/Private Lobby/i)).toHaveCount(0)
+  await component.getByRole('button', { name: /^Private Lobby/ }).click()
 
   await component.getByRole('button', { name: /^Create Lobby$/i }).click()
 
   expect(createRequest).toEqual({
     lobbyOptions: {
-      visibility: 'public',
+      visibility: 'private',
       timeControl: {
         mode: 'match',
         mainTimeMs: 5 * 60 * 1000,
@@ -288,24 +286,31 @@ test('picking one of your bots submits an unrated request naming the bot', async
       rated: false,
       firstPlayer: 'random',
     },
+    opponent: { kind: 'bot', profileId: 'bot-1' },
   })
-  expect(botProfileId).toBe('bot-1')
 })
 
-test('opens on a named community bot', async ({ mount }) => {
+test('a guest opens on a named community bot and can play it', async ({ mount }) => {
+  let createRequest: CreateSessionRequest | null = null
+
   const component = await mount(
     <CreateLobbyDialog
       isOpen
       initialOpponent={{ kind: 'bot', profileId: 'bot-2' }}
       onClose={() => { }}
       account={null}
-      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: false }]}
-      onCreateLobby={() => { }}
+      onlineBots={[{ profileId: 'bot-2', displayName: 'Wren', elo: 1_400, owner: 'someone', online: true, openForChallenges: true }]}
+      onCreateLobby={(request) => {
+        createRequest = request
+      }}
     />
   )
 
   await expect(component.getByRole('button', { name: /^Wren/ })).toHaveAttribute('class', /border-sky-300/)
   await expect(component.getByText('Wren', { exact: true })).toBeVisible()
+  await component.getByRole('button', { name: /^Create Lobby$/i }).click()
+
+  expect((createRequest as CreateSessionRequest | null)?.opponent).toEqual({ kind: 'bot', profileId: 'bot-2' })
 })
 
 test('matches the authenticated lobby dialog screenshot', async ({ mount }) => {

@@ -100,7 +100,7 @@ export class HouseBotService {
      * clock, never rated, first player random, no reserved seats — a guest has no
      * profile to reserve, and the open seat is for whoever comes, as with any lobby.
      */
-    async createLobby(client: RequestClientInfo, lobbyOptions: LobbyOptions, opponent: LobbyOpponent): Promise<CreateSessionResponse> {
+    async createLobby(client: RequestClientInfo, lobbyOptions: LobbyOptions, opponent: Extract<LobbyOpponent, { kind: `house-bot` }>): Promise<CreateSessionResponse> {
         const bot = this.bots.find((candidate) => candidate.account.id === opponent.profileId);
         if (!bot) {
             throw new ApiRequestError(404, `That bot does not exist.`);

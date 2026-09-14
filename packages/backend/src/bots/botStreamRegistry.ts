@@ -100,6 +100,12 @@ export class BotStreamRegistry implements BotSeatDriver {
         return this.streams.has(botId);
     }
 
+    /** True while the bot holds a stream opened with `open=1`; it resets when the
+     * stream dies, because the flag lives on the stream entry. */
+    isOpenForChallenges(botId: string): boolean {
+        return this.streams.get(botId)?.openForChallenges ?? false;
+    }
+
     /** The last request id sent for a game, so a late answer can be spotted. */
     getRequestId(botId: string, sessionId: string): number | null {
         return this.requestIds.get(requestKey(botId, sessionId)) ?? null;
@@ -121,7 +127,6 @@ export class BotStreamRegistry implements BotSeatDriver {
 
         const stream: BotStream = {
             connection,
-            /* Held for `challenges`, which is the feature that reads it. */
             openForChallenges,
             keepalive: setInterval(() => this.write(bot.id, `\n`), KEEPALIVE_INTERVAL_MS),
             games: new Map(),

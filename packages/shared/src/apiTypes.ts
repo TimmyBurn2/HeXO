@@ -137,6 +137,11 @@ export const zLobbyOpponent = z.discriminatedUnion(`kind`, [
         profileId: zIdentifier,
         thinkMs: z.number().int().nonnegative(),
     }),
+    /* A community bot: seated at creation over its stream, like a house bot over its engine. */
+    z.object({
+        kind: z.literal(`bot`),
+        profileId: zIdentifier,
+    }),
 ]);
 export type LobbyOpponent = z.infer<typeof zLobbyOpponent>;
 
@@ -324,13 +329,6 @@ export const zBotListing = z.object({
     openForChallenges: z.boolean(),
 });
 export type BotListing = z.infer<typeof zBotListing>;
-
-/* The options a human picks to start a game against a bot; the server owns the rest
- * (visibility is private, first player random, and every bot game is unrated). */
-export const zCreateBotSessionRequest = z.object({
-    timeControl: zGameTimeControl.optional(),
-});
-export type CreateBotSessionRequest = z.infer<typeof zCreateBotSessionRequest>;
 
 /*
  * The bot play API. Paths, event shapes and error codes are defined by the spec
