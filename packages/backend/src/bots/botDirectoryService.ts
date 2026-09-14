@@ -12,6 +12,7 @@ import { BotAccountRepository } from './botAccountRepository';
 import { MAX_CONCURRENT_GAMES_PER_BOT } from './botAccountService';
 import { BotPlayerMapper } from './botPlayerMapper';
 import { type BotSeatPresence, seatBotInLobby, underBotSeatGate } from './botSeatGate';
+import { BotSeatManager } from './botSeatManager';
 import { BotStreamRegistry } from './botStreamRegistry';
 
 @injectable()
@@ -29,19 +30,27 @@ export class BotDirectoryService {
         @inject(BotPlayerMapper) private readonly botPlayerMapper: BotPlayerMapper,
         @inject(SessionManager) private readonly sessionManager: SessionManager,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
+        @inject(BotSeatManager) private readonly botSeatManager: BotSeatManager,
     ) {
         this.logger = rootLogger.child({ component: `bot-directory-service` });
     }
 
-    /** The public roster, spec tag Directory; `?online=1` narrows it to connected bots. */
+    /**
+     * The public roster, spec tag Directory; `?online=1` narrows it to connected bots.
+     * A bot the server drives is reached by running it: always online, and never open
+     * — it takes no challenges, only the lobby dialog seats it.
+     */
     async listBots(onlineOnly: boolean): Promise<BotListing[]> {
         const accounts = await this.botAccountRepository.listAll();
-        const listings = await Promise.all(accounts.map(async (account) => ({
-            ...await this.botPlayerMapper.fromAccount(account),
-            owner: account.ownerProfileId ?? undefined,
-            online: this.botStreamRegistry.isOnline(account.id),
-            openForChallenges: this.botStreamRegistry.isOpenForChallenges(account.id),
-        } satisfies BotListing)));
+        const listings = await Promise.all(accounts.map(async (account) => {
+            const engineDriven = this.botSeatManager.getDriverType(account.id) === `engine`;
+            return {
+                ...await this.botPlayerMapper.fromAccount(account),
+                owner: account.ownerProfileId ?? undefined,
+                online: engineDriven || this.botStreamRegistry.isOnline(account.id),
+                openForChallenges: !engineDriven && this.botStreamRegistry.isOpenForChallenges(account.id),
+            } satisfies BotListing;
+        }));
 
         const visible = onlineOnly ? listings.filter((listing) => listing.online) : listings;
         return visible.sort((left, right) => right.elo - left.elo || left.displayName.localeCompare(right.displayName));
