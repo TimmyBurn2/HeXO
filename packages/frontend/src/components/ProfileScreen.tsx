@@ -17,6 +17,7 @@ import {
 import { signInWithDiscord } from '../query/authClient';
 import { buildSessionPath } from '../routes/archiveRouteState';
 import { useSsrCompatibleNow } from '../ssrState';
+import BotBadge from './BotBadge';
 import {
     formatCalendarDate,
     formatChartDate,
@@ -226,6 +227,7 @@ function LiveGameSection({
 
                     <div className="mt-2 text-sm leading-6 text-slate-300">
                         {formatLobbyPlayers(liveGame.players, liveGame.rated, `Waiting for players`)}
+                        {liveGame.players.some((player) => player.isBot) && <BotBadge />}
                     </div>
 
                     {liveGame.startedAt && (
