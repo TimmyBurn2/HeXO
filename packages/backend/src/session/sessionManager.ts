@@ -470,9 +470,20 @@ export class SessionManager {
             spectators: session.spectators.map(({ id }) => id),
         });
 
-        this.emitSessionUpdated(session, [
-            participation.role === `player` ? `players` : `spectators`,
-        ]);
+        /* A session that gains a bot seat is never rated. Enforced here, under the
+         * lock, so no route or client can seat a bot into an Elo game — and the
+         * emitted gameOptions say so before the game starts. The join is not
+         * refused for a rated lobby: the flip is broadcast while the game can
+         * still be called off, and refusing would strand the human's lobby on a
+         * bot that cannot choose. */
+        const joinsAsBotPlayer = participation.role === `player` && params.profile?.kind === `bot`;
+        if (joinsAsBotPlayer) {
+            session.gameOptions.rated = false;
+        }
+
+        this.emitSessionUpdated(session, joinsAsBotPlayer
+            ? [`players`, `gameOptions`]
+            : [participation.role === `player` ? `players` : `spectators`]);
         this.emitLobbyUpdated(session);
 
         return participation;
