@@ -279,6 +279,38 @@ test(`a created rematch is announced with the sockets its seats held`, async () 
     assert.equal(sessionManager.getSession(session.id), rematchSession, `the announced session is already reachable`);
 });
 
+test(`a bot taking a seat in a rated lobby flips it to casual, and says so`, async () => {
+    const sessionManager = createSessionManager({
+        ...new FakeGameHistoryRepository(),
+    } as unknown as DelayedGameHistoryRepository);
+    (sessionManager as unknown as { eloHandler: unknown }).eloHandler = {
+        getPlayerRating: () => Promise.resolve({ eloScore: 1_000, gameCount: 0 }),
+    };
+    const session = createGameSession(`session-rated` as SessionId, {
+        visibility: `public`,
+        rated: true,
+        timeControl: { mode: `unlimited` },
+        firstPlayer: `host`,
+    });
+    (sessionManager as unknown as { sessions: Map<string, ServerGameSession> }).sessions.set(session.id, session);
+    const updates: string[][] = [];
+    sessionManager.addEventHandlers({
+        sessionUpdated: (event) => updates.push(Object.keys(event.session)),
+    });
+
+    const bot = { id: `bot-1`, username: `SealBot`, kind: `bot` } as never;
+    const participation = await sessionManager.joinSession(session, {
+        deviceId: `bot:bot-1`,
+        profile: bot,
+        displayName: `SealBot`,
+        allowSelfJoinCasualGames: true,
+    });
+
+    assert.equal(participation.role, `player`);
+    assert.equal(session.gameOptions.rated, false);
+    assert.ok(updates.some((keys) => keys.includes(`gameOptions`) && keys.includes(`players`)), `the flip is broadcast with the join: ${JSON.stringify(updates)}`);
+});
+
 test(`a draw cannot be offered in a game with a bot in it`, async () => {
     const sessionManager = createPlaySessionManager();
     const session = createStartedSession(sessionManager, { guestIsBot: true });
