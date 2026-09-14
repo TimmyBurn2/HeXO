@@ -13,6 +13,7 @@ import { Badge } from './ui/badge';
 import { useQueryAccount } from '../query/accountClient';
 import { PlusIcon, ScanSearchIcon } from 'lucide-react';
 import { useQueryServerShutdown } from '../query/serverClient';
+import BotBadge from './BotBadge';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next'
 import i18next from 'i18next'
@@ -128,6 +129,7 @@ function PlayerMatchup({ session }: { session: LobbyInfo }) {
         return (
             <div className="text-xl font-bold text-white sm:text-2xl">
                 {formatPlayerLabel(playerOne, session.rated)}
+                {playerOne.isBot && <BotBadge />}
             </div>
         );
     } else {
@@ -135,6 +137,7 @@ function PlayerMatchup({ session }: { session: LobbyInfo }) {
             <div className="text-xl font-bold text-white sm:text-2xl min-w-0 gap-2 flex flex-row justify-start">
                 <span className="shrink min-w-0 whitespace-nowrap overscroll-contain overflow-hidden text-ellipsis">
                     {formatPlayerLabel(playerOne, session.rated)}
+                    {playerOne.isBot && <BotBadge />}
                 </span>
 
                 <span className="whitespace-nowrap">
@@ -143,6 +146,7 @@ function PlayerMatchup({ session }: { session: LobbyInfo }) {
 
                 <span className="shrink min-w-0 whitespace-nowrap overscroll-contain overflow-hidden text-ellipsis text-right">
                     {formatPlayerLabel(playerTwo, session.rated)}
+                    {playerTwo.isBot && <BotBadge />}
                 </span>
             </div>
         );
