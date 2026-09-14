@@ -7,11 +7,14 @@ import {
 import type { Logger } from 'pino';
 import { inject, injectable } from 'tsyringe';
 
+import type { GameState } from '@ih3t/shared';
+
 import type { AccountUserProfile } from '../auth/authRepository';
 import { ROOT_LOGGER } from '../logger';
 import { SessionManager } from '../session/sessionManager';
-import type { ServerGameSession, ServerSessionPlayer } from '../session/types';
+import type { ServerGameSession } from '../session/types';
 import { BotPlayerMapper } from './botPlayerMapper';
+import { type BotSeat, type BotSeatDriver, BotSeatManager } from './botSeatManager';
 import { sideOf, toMoveRequest } from './htttxCodec';
 
 const KEEPALIVE_INTERVAL_MS = 10_000;
@@ -42,18 +45,19 @@ type BotStream = {
 
     /** Keyed by session id, which never reaches the wire. */
     games: Map<string, BotStreamGame>;
-    lastRequestedCellCount: Map<string, number>;
-    originPlacements: Set<string>;
 };
 
 /**
  * One NDJSON stream per bot, and the bot's presence: while it is held the bot is
  * online, and dropping it orphans every game at once, because a bot has a single
  * virtual socket id for all of them. Mirrors how `devSupportService` gives its
- * server-side players `dev-bot:` socket ids.
+ * server-side players `dev-bot:` socket ids. As the seat manager's stream driver it
+ * only ever answers "your turn" with a `moveRequest`; whose turn it is, the opening
+ * stone and once-per-turn delivery are the manager's.
  */
 @injectable()
-export class BotStreamRegistry {
+export class BotStreamRegistry implements BotSeatDriver {
+    readonly type = `stream` as const;
     private readonly logger: Logger;
     private readonly streams = new Map<string, BotStream>();
     /**
@@ -65,30 +69,23 @@ export class BotStreamRegistry {
     /** The last request id the bot already answered, so a retried move after a lost
      * HTTP response is answered, not rejected. Keyed like `requestIds`. */
     private readonly answeredRequestIds = new Map<string, number>();
-    private unsubscribe: (() => void) | null = null;
 
     constructor(
         @inject(ROOT_LOGGER) rootLogger: Logger,
         @inject(SessionManager) private readonly sessionManager: SessionManager,
         @inject(BotPlayerMapper) private readonly botPlayerMapper: BotPlayerMapper,
+        @inject(BotSeatManager) private readonly botSeatManager: BotSeatManager,
     ) {
         this.logger = rootLogger.child({ component: `bot-stream-registry` });
     }
 
-    /** Subscribes beside the socket gateway rather than replacing it. */
+    /** Registers as the manager's stream driver; the manager subscribes beside the socket gateway. */
     attach(): void {
-        this.unsubscribe ??= this.sessionManager.addEventHandlers({
-            gameStarted: ({ sessionId }) => this.reconcile(sessionId),
-            gameStateUpdated: ({ sessionId }) => this.reconcile(sessionId),
-            gameCellPlacement: ({ sessionId }) => this.reconcile(sessionId),
-            gameFinished: ({ sessionId, reason, winningPlayerId }) => this.finish(sessionId, reason, winningPlayerId),
-            lobbyRemoved: ({ id }) => this.abortIfVanished(id),
-        });
+        this.botSeatManager.registerDriver(this);
+        this.botSeatManager.attach();
     }
 
     detach(): void {
-        this.unsubscribe?.();
-        this.unsubscribe = null;
         for (const botId of [...this.streams.keys()]) {
             this.closeStream(botId);
         }
@@ -128,8 +125,6 @@ export class BotStreamRegistry {
             openForChallenges,
             keepalive: setInterval(() => this.write(bot.id, `\n`), KEEPALIVE_INTERVAL_MS),
             games: new Map(),
-            lastRequestedCellCount: new Map(),
-            originPlacements: new Set(),
         };
         stream.keepalive.unref?.();
 
@@ -173,153 +168,80 @@ export class BotStreamRegistry {
                 participation.participant.id,
                 this.getSocketId(botId),
             );
-            this.reconcile(participation.session.id);
         }
+
+        /* The manager forgets what this bot was told and tells it again, in order. */
+        this.botSeatManager.replay(botId);
     }
 
-    private reconcile(sessionId: string): void {
-        if (this.streams.size === 0) {
-            return;
-        }
-
-        const session = this.sessionManager.getSession(sessionId);
-        if (!session || session.state !== `in-game` || !session.gameId) {
-            return;
-        }
-
-        for (const [botId, stream] of this.streams) {
-            const seat = session.players.find((player) => player.isBot && player.profileId === botId);
-            if (seat) {
-                this.reconcileSeat(botId, stream, session, seat);
-            }
-        }
-    }
-
-    private reconcileSeat(
-        botId: string,
-        stream: BotStream,
-        session: ServerGameSession,
-        seat: ServerSessionPlayer,
-    ): void {
+    onStart(seat: BotSeat, session: ServerGameSession): void {
+        const stream = this.streams.get(seat.botProfileId);
         const snapshot = this.sessionManager.getSessionSnapshot(session.id);
-        if (!snapshot) {
+        if (!stream || !snapshot || stream.games.has(session.id)) {
+            /* Offline: the stream's next open replays this start. */
             return;
         }
 
-        const { gameState } = snapshot;
-        const side = sideOf(gameState, seat.id);
-        if (!stream.games.has(session.id)) {
-            stream.games.set(session.id, { gameId: session.gameId, seatId: seat.id, side });
-            this.emit(botId, {
-                type: `gameStart`,
-                gameId: session.gameId,
-                side,
-                opponent: this.botPlayerMapper.fromSeat(session.players.find((player) => player.id !== seat.id)),
-                timeControl: session.gameOptions.timeControl,
-                rated: session.isRatedGame,
-            });
-        }
-
-        if (gameState.winner) {
-            /* A winning second stone still completes the turn, and the state is emitted
-             * before the session is marked finished: without this, the loser would be
-             * asked to move in a game that is already over. */
-            return;
-        }
-
-        const isOurTurn = gameState.currentTurnPlayerId === seat.id;
-        if (isOurTurn && gameState.cells.length === 0 && gameState.placementsRemaining === 1) {
-            this.placeOrigin(stream, session, seat);
-            return;
-        }
-
-        if (!isOurTurn || gameState.placementsRemaining !== 2) {
-            return;
-        }
-
-        if (stream.lastRequestedCellCount.get(session.id) === gameState.cells.length) {
-            return;
-        }
-
-        stream.lastRequestedCellCount.set(session.id, gameState.cells.length);
-        const key = requestKey(botId, session.id);
-        const requestId = (this.requestIds.get(key) ?? 0) + 1;
-        this.requestIds.set(key, requestId);
-        this.emit(botId, {
-            type: `moveRequest`,
-            gameId: session.gameId,
-            request: toMoveRequest(gameState, gameState.currentTurnExpiresInMs, requestId),
+        const side = sideOf(snapshot.gameState, seat.seatId);
+        stream.games.set(session.id, { gameId: seat.gameId, seatId: seat.seatId, side });
+        this.emit(seat.botProfileId, {
+            type: `gameStart`,
+            gameId: seat.gameId,
+            side,
+            opponent: this.botPlayerMapper.fromSeat(session.players.find((player) => player.id !== seat.seatId)),
+            timeControl: session.gameOptions.timeControl,
+            rated: session.isRatedGame,
         });
     }
 
-    /**
-     * The opening stone is placed for the bot, so every request it sees wants exactly
-     * two placements, as htttx assumes. There is no server-side `autoPlaceOriginTile`
-     * to reuse: that preference is acted on by the browser.
-     */
-    private placeOrigin(stream: BotStream, session: ServerGameSession, seat: ServerSessionPlayer): void {
-        if (stream.originPlacements.has(session.id)) {
+    onTurn(seat: BotSeat, state: GameState, clock: { expiresInMs: number | null }): void {
+        if (!this.streams.has(seat.botProfileId)) {
             return;
         }
 
-        stream.originPlacements.add(session.id);
-        /* Queued, not awaited: this runs inside the session lock the event came from. */
-        void this.sessionManager.placeCell(session, seat.id, { x: 0, y: 0 })
-            .catch((error: unknown) => {
-                stream.originPlacements.delete(session.id);
-                this.logger.warn(
-                    { err: error, event: `bots.origin.failed`, sessionId: session.id },
-                    `Failed to place the opening stone for a bot`,
-                );
-            });
+        const key = requestKey(seat.botProfileId, seat.sessionId);
+        const requestId = (this.requestIds.get(key) ?? 0) + 1;
+        this.requestIds.set(key, requestId);
+        this.emit(seat.botProfileId, {
+            type: `moveRequest`,
+            gameId: seat.gameId,
+            request: toMoveRequest(state, clock.expiresInMs, requestId),
+        });
     }
 
-    private finish(sessionId: string, reason: string, winningPlayerId: string | null): void {
+    onFinish(seat: BotSeat, reason: string, winningPlayerId: string | null): void {
         /* Also for a bot with no stream open right now, so nothing is left behind. */
+        this.requestIds.delete(requestKey(seat.botProfileId, seat.sessionId));
+        this.answeredRequestIds.delete(requestKey(seat.botProfileId, seat.sessionId));
+
+        const stream = this.streams.get(seat.botProfileId);
+        const game = stream?.games.get(seat.sessionId);
+        if (!stream || !game) {
+            return;
+        }
+
+        this.forget(seat.botProfileId, stream, seat.sessionId);
+        const finishReason = zBotFinishReason.safeParse(reason);
+        this.emit(seat.botProfileId, {
+            type: `gameFinish`,
+            gameId: game.gameId,
+            winner: winningPlayerId === null ? null : winningPlayerId === game.seatId ? game.side : opposite(game.side),
+            /* `draw-agreement` is unreachable: a game with a bot in it has no draw. */
+            reason: finishReason.success ? finishReason.data : `aborted`,
+        });
+    }
+
+    onSessionRemoved(sessionId: string): void {
         for (const key of [...this.requestIds.keys(), ...this.answeredRequestIds.keys()]) {
             if (key.endsWith(`::${sessionId}`)) {
                 this.requestIds.delete(key);
                 this.answeredRequestIds.delete(key);
             }
         }
-
-        for (const [botId, stream] of this.streams) {
-            const game = stream.games.get(sessionId);
-            if (!game) {
-                continue;
-            }
-
-            this.forget(botId, stream, sessionId);
-            const finishReason = zBotFinishReason.safeParse(reason);
-            this.emit(botId, {
-                type: `gameFinish`,
-                gameId: game.gameId,
-                winner: winningPlayerId === null ? null : winningPlayerId === game.seatId ? game.side : opposite(game.side),
-                /* `draw-agreement` is unreachable: a game with a bot in it has no draw. */
-                reason: finishReason.success ? finishReason.data : `aborted`,
-            });
-        }
-    }
-
-    /**
-     * A session can be dropped without ever finishing; `deleteSession` announces only
-     * that the lobby is gone, so a bot would otherwise wait on a game nobody is
-     * playing. Correct only while `finishSessionLocked` dispatches `gameFinished`
-     * while the session is still in the manager's map — the vanish check must never
-     * see a finished game as gone, or every ending would read as `aborted`.
-     */
-    private abortIfVanished(sessionId: string): void {
-        if (this.sessionManager.getSession(sessionId)) {
-            return;
-        }
-
-        this.finish(sessionId, `aborted`, null);
     }
 
     private forget(botId: string, stream: BotStream, sessionId: string): void {
         stream.games.delete(sessionId);
-        stream.lastRequestedCellCount.delete(sessionId);
-        stream.originPlacements.delete(sessionId);
         this.requestIds.delete(requestKey(botId, sessionId));
         this.answeredRequestIds.delete(requestKey(botId, sessionId));
     }
