@@ -36,6 +36,7 @@ class DelayedGameHistoryRepository {
 function createSessionManager(gameHistoryRepository: DelayedGameHistoryRepository): SessionManager {
     const serverShutdownService = {
         createShutdownHook: () => ({ tryShutdown: () => {} }),
+        isShutdownPending: () => false,
     };
     const metricsTracker = { track: () => {} };
 
@@ -47,7 +48,7 @@ function createSessionManager(gameHistoryRepository: DelayedGameHistoryRepositor
         {} as never,
         gameHistoryRepository as never,
         metricsTracker as never,
-        {} as never,
+        { getSettings: () => ({ maxConcurrentGames: null }) } as never,
     );
 }
 
@@ -251,4 +252,28 @@ test(`a profile's seats are found across sessions`, () => {
     assert.equal(seats.length, 2);
     assert.ok(seats.every((seat) => seat.role === `player` && seat.participant.profileId === HOST));
     assert.equal(sessionManager.getPlayerParticipationsByProfileId(`nobody`).length, 0);
+});
+
+test(`a created rematch is announced with the sockets its seats held`, async () => {
+    const sessionManager = createPlaySessionManager();
+    const session = createStartedSession(sessionManager);
+    const announced: { sessionId: string, originalSessionId: string, socketMapping: Record<string, string> }[] = [];
+    sessionManager.setEventHandlers({ rematchCreated: (event) => announced.push(event) });
+
+    await sessionManager.surrenderSession(session, GUEST);
+    await sessionManager.requestRematch(session, HOST);
+    await sessionManager.requestRematch(session, GUEST);
+    const { rematchSession, socketMapping } = await sessionManager.createRematchSession(session.id);
+
+    assert.equal(announced.length, 1);
+    assert.equal(announced[0]?.sessionId, rematchSession.id);
+    assert.equal(announced[0]?.originalSessionId, session.id);
+    assert.deepEqual(announced[0]?.socketMapping, socketMapping);
+    /* Every seat that was connected finds its old socket under its new id. */
+    assert.deepEqual(
+        Object.values(socketMapping).sort(),
+        [`socket-${GUEST}`, `socket-${HOST}`],
+    );
+    assert.ok(rematchSession.players.every((player) => player.id in socketMapping));
+    assert.equal(sessionManager.getSession(session.id), rematchSession, `the announced session is already reachable`);
 });

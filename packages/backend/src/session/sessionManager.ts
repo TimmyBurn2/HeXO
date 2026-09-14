@@ -1007,6 +1007,11 @@ export class SessionManager {
                     });
                 }
                 this.emitLobbyUpdated(rematchSession);
+                this.dispatch(`rematchCreated`, {
+                    sessionId: rematchSession.id,
+                    originalSessionId: originalSession.id,
+                    socketMapping: { ...socketMapping },
+                });
             });
 
             void this.tickSession(rematchSession);

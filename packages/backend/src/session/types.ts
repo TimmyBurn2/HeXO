@@ -135,6 +135,13 @@ export type SessionGameFinishedEvent = {
     winningPlayerId: string | null;
 };
 
+export type SessionRematchCreatedEvent = {
+    sessionId: string;
+    originalSessionId: string;
+    /** New participant id → the socket that seat held in the finished game. */
+    socketMapping: Record<string, string>;
+};
+
 export type SessionManagerEventHandlers = {
     lobbyUpdated?: (lobby: EventLobbyUpdated) => void,
     lobbyRemoved?: (event: EventLobbyRemoved) => void;
@@ -150,6 +157,9 @@ export type SessionManagerEventHandlers = {
      * leaving a subscriber to infer it from a state update. */
     gameStarted?: (event: SessionGameStartedEvent) => void;
     gameFinished?: (event: SessionGameFinishedEvent) => void;
+    /** The rematch session is registered and its seats are still socketless: whoever
+     * holds the sockets (the gateway, a bot driver) reattaches them from here. */
+    rematchCreated?: (event: SessionRematchCreatedEvent) => void;
 };
 
 export type RematchRequestResult = {
