@@ -61,6 +61,7 @@ Optional backend environment variables:
 
 - `ALLOWED_ORIGINS`
 - `BOT_API_ENABLED` (default `false`; enables the bot account endpoints)
+- `HOUSE_BOT_MAX_GAMES` (default `2`; how many games the built-in bots play at once, in total — one worker thread per concurrent game; each think uses a full core)
 - `FRONTEND_DIST_PATH`
 - `LOG_LEVEL`
 - `LOG_PRETTY`

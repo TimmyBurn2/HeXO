@@ -7,6 +7,22 @@ import { DEFAULT_PLAYER_ELO } from '../elo/eloRepository';
 import { ROOT_LOGGER } from '../logger';
 import { MongoDatabase } from '../persistence/mongoClient';
 import { AUTH_USERS_COLLECTION_NAME, BOT_TOKENS_COLLECTION_NAME } from '../persistence/mongoCollections';
+import { HOUSE_BOT_SEEDS } from './houseBotSeeds';
+
+/**
+ * Who moves for a bot's seat: its own process over the stream, or an engine the server
+ * runs. An engine driver names the engine only — strength is chosen per seat, and what
+ * the engine can do lives in the engine catalogue, not on the user.
+ */
+export type EngineBotDriver = { type: `engine`, engine: string };
+export type BotDriver = { type: `stream` } | EngineBotDriver;
+
+/** A server-owned bot, seeded under a stable key when the flag-on server starts. */
+export type HouseBot = {
+    key: string;
+    account: BotAccount;
+    driver: EngineBotDriver;
+};
 
 type BotUserDocument = {
     _id: ObjectId;
@@ -16,6 +32,8 @@ type BotUserDocument = {
     ownerProfileId?: string | null;
     registeredAt?: number;
     deletedAt?: number | null;
+    driver?: BotDriver;
+    houseKey?: string;
 } & Document;
 
 type BotTokenDocument = {
@@ -66,6 +84,54 @@ export class BotAccountRepository {
         return documents.map((document) => this.mapBotAccount(document, null));
     }
 
+    /**
+     * Upserts every house bot by its stable key, insert-only fields: a re-run never
+     * resets a bot someone renamed or retuned, and the doc is the truth afterwards.
+     */
+    async seedHouseBots(): Promise<void> {
+        const collection = await this.getUsersCollection();
+        const now = Date.now();
+        for (const seed of HOUSE_BOT_SEEDS) {
+            await collection.updateOne(
+                { houseKey: seed.key },
+                {
+                    $setOnInsert: {
+                        name: seed.username,
+                        image: null,
+                        role: `user`,
+                        kind: `bot`,
+                        ownerProfileId: null,
+                        permissions: [],
+                        elo: DEFAULT_PLAYER_ELO,
+                        registeredAt: now,
+                        lastActiveAt: now,
+                        deletedAt: null,
+                        driver: seed.driver,
+                    },
+                },
+                { upsert: true },
+            );
+        }
+    }
+
+    /** The seeded house bots, in seed order; a doc whose driver is not an engine is skipped. */
+    async listHouseBots(): Promise<HouseBot[]> {
+        const collection = await this.getUsersCollection();
+        const documents = await collection
+            .find({ kind: `bot`, houseKey: { $exists: true }, deletedAt: null })
+            .toArray();
+        const byKey = new Map(documents.map((document) => [document.houseKey, document]));
+
+        return HOUSE_BOT_SEEDS.flatMap((seed) => {
+            const document = byKey.get(seed.key);
+            if (!document || document.driver?.type !== `engine`) {
+                return [];
+            }
+
+            return [{ key: seed.key, account: this.mapBotAccount(document, null), driver: document.driver }];
+        });
+    }
+
     async findByOwner(ownerProfileId: string, botProfileId: string): Promise<BotAccount | null> {
         const collection = await this.getUsersCollection();
         const objectId = this.parseObjectId(botProfileId);
@@ -97,6 +163,7 @@ export class BotAccountRepository {
             registeredAt: now,
             lastActiveAt: now,
             deletedAt: null,
+            driver: { type: `stream` },
         };
 
         await collection.insertOne(document);
