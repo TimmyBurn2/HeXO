@@ -205,7 +205,8 @@ export const zBotAccount = z.object({
     id: zIdentifier,
     username: z.string(),
     image: z.string().nullable(),
-    ownerProfileId: zIdentifier,
+    /** `null` = server-owned (a house bot). */
+    ownerProfileId: zIdentifier.nullable(),
     createdAt: zTimestamp,
     tokenRotatedAt: zTimestamp.nullable(),
 });

@@ -13,7 +13,7 @@ type BotUserDocument = {
     name?: string | null;
     image?: string | null;
     kind?: string;
-    ownerProfileId?: string;
+    ownerProfileId?: string | null;
     registeredAt?: number;
     deletedAt?: number | null;
 } & Document;
@@ -53,6 +53,17 @@ export class BotAccountRepository {
         const tokens = await this.getTokensByBotIds(documents.map((document) => document._id.toHexString()));
 
         return documents.map((document) => this.mapBotAccount(document, tokens.get(document._id.toHexString()) ?? null));
+    }
+
+    /** Every live bot account, across owners — the public roster's query. */
+    async listAll(): Promise<BotAccount[]> {
+        const collection = await this.getUsersCollection();
+        const documents = await collection
+            .find({ kind: `bot`, deletedAt: null })
+            .sort({ registeredAt: 1 })
+            .toArray();
+
+        return documents.map((document) => this.mapBotAccount(document, null));
     }
 
     async findByOwner(ownerProfileId: string, botProfileId: string): Promise<BotAccount | null> {
@@ -144,7 +155,7 @@ export class BotAccountRepository {
             id: document._id.toHexString(),
             username: document.name?.trim() ?? `Bot`,
             image: document.image ?? null,
-            ownerProfileId: document.ownerProfileId ?? ``,
+            ownerProfileId: document.ownerProfileId ?? null,
             createdAt: document.registeredAt ?? 0,
             tokenRotatedAt,
         };

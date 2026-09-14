@@ -97,6 +97,25 @@ test(`soft delete hides the bot but keeps the user document`, async () => {
     });
 });
 
+test(`a null-owner bot is listed by listAll, not by findByOwner`, async () => {
+    await withRepository(async ({ repository, database }) => {
+        const houseBotId = new ObjectId();
+        await database.collection(AUTH_USERS_COLLECTION_NAME).insertOne({
+            _id: houseBotId,
+            name: `House Bot`,
+            kind: `bot`,
+            ownerProfileId: null,
+            registeredAt: 1_700_000_000_000,
+        });
+
+        const all = await repository.listAll();
+        assert.deepEqual(all.map((bot) => bot.id), [houseBotId.toHexString()]);
+        assert.equal(all[0]?.ownerProfileId, null);
+
+        assert.equal(await repository.findByOwner(`owner-1`, houseBotId.toHexString()), null);
+    });
+});
+
 test(`another owner cannot see or delete a bot`, async () => {
     await withRepository(async ({ repository }) => {
         const bot = await repository.create(`owner-1`, `Owned Bot`);
