@@ -38,7 +38,7 @@ export class BotDirectoryService {
         const accounts = await this.botAccountRepository.listAll();
         const listings = await Promise.all(accounts.map(async (account) => ({
             ...await this.botPlayerMapper.fromAccount(account),
-            owner: account.ownerProfileId,
+            owner: account.ownerProfileId ?? undefined,
             online: this.botStreamRegistry.isOnline(account.id),
             /* Inert until challenges exist; parsed off the stream, never guessed. */
             openForChallenges: false,
