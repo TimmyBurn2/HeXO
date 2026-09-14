@@ -403,6 +403,37 @@ test('offers the challenge action on a bot profile the viewer owns bots for', as
   await expect(component.getByRole('combobox')).toHaveValue('bot-1')
 })
 
+test('a house bot profile hides the challenge action: it is played from the lobby, not challenged', async ({ mount }) => {
+  const component = await mount(
+    <ProfileScreen
+      account={{ ...account, kind: 'bot' }}
+      statistics={statistics}
+      recentGames={recentGames}
+      liveGame={null}
+      isLoading={false}
+      isStatisticsLoading={false}
+      isRecentGamesLoading={false}
+      errorMessage={null}
+      statisticsErrorMessage={null}
+      recentGamesErrorMessage={null}
+      isPublicView
+      isHouseBot
+      ownBots={[
+        {
+          id: 'bot-1',
+          username: 'Strix',
+          image: null,
+          ownerProfileId: 'profile-1',
+          createdAt: 1,
+          tokenRotatedAt: null,
+        },
+      ]}
+    />
+  )
+
+  await expect(component.getByRole('button', { name: 'Challenge' })).toHaveCount(0)
+})
+
 test('a human profile never offers the challenge action', async ({ mount }) => {
   const component = await mount(
     <ProfileScreen

@@ -61,6 +61,8 @@ type ProfileScreenProps = {
     isPublicView: boolean
     /** The signed-in player's bots; null while the flag is off hides the Challenge entry. */
     ownBots?: BotAccount[] | null
+    /** A bot the server runs is played from the lobby dialog; it takes no challenges. */
+    isHouseBot?: boolean
 };
 
 type PrimaryStatCardProps = {
@@ -483,13 +485,15 @@ function ProfileScreen({
     recentGamesErrorMessage,
     isPublicView,
     ownBots = null,
+    isHouseBot = false,
 }: Readonly<ProfileScreenProps>) {
     const { t } = useTranslation()
     const intlFormatProvider = useIntlFormatProvider();
     const now = useSsrCompatibleNow();
     const [isChallenging, setIsChallenging] = useState(false);
-    /* Owners initiate: a Challenge entry only makes sense for a bot someone can send. */
-    const canChallenge = account?.kind === `bot` && (ownBots?.length ?? 0) > 0;
+    /* Owners initiate: a Challenge entry only makes sense for a bot someone can send,
+     * against a bot that answers on a stream. */
+    const canChallenge = account?.kind === `bot` && !isHouseBot && (ownBots?.length ?? 0) > 0;
 
     const handleSignIn = async () => {
         try {

@@ -22,6 +22,7 @@ import { BotAccountRepository } from './botAccountRepository';
 import { MAX_CONCURRENT_GAMES_PER_BOT } from './botAccountService';
 import { BotPlayerMapper } from './botPlayerMapper';
 import { seatBotInLobby, underBotSeatGate } from './botSeatGate';
+import { BotSeatManager } from './botSeatManager';
 import { BotStreamRegistry } from './botStreamRegistry';
 
 /** A rejection a bot can act on, carrying one of the contract's challenge codes. */
@@ -86,6 +87,7 @@ export class ChallengeService {
         @inject(AuthRepository) private readonly authRepository: AuthRepository,
         @inject(BotPlayerMapper) private readonly botPlayerMapper: BotPlayerMapper,
         @inject(BotAccountRepository) private readonly botAccountRepository: BotAccountRepository,
+        @inject(BotSeatManager) private readonly botSeatManager: BotSeatManager,
     ) {
         this.logger = rootLogger.child({ component: `challenge-service` });
     }
@@ -284,6 +286,11 @@ export class ChallengeService {
 
         if (target.id === challenger.id) {
             throw new ApiRequestError(400, `A bot cannot challenge itself.`);
+        }
+
+        if (this.botSeatManager.getDriverType(target.id) === `engine`) {
+            /* A house bot has no stream to answer on; the lobby dialog is its only door. */
+            throw new BotChallengeError(`That bot is played from the lobby dialog and takes no challenges.`, `not-open`);
         }
 
         if (!this.botStreamRegistry.isOpenForChallenges(target.id)) {

@@ -51,11 +51,13 @@ type Fixture = {
 function createFixture(options: {
     online?: string[],
     open?: string[],
+    engine?: string[],
     inboxLimit?: number,
     ttlMs?: number,
 } = {}): Fixture {
     const online = new Set(options.online ?? [CHALLENGER_ID, TARGET_ID, OTHER_TARGET_ID, `bot-x`, `bot-y`, `bot-z`]);
     const open = new Set(options.open ?? [TARGET_ID, OTHER_TARGET_ID, `bot-y`, `bot-z`]);
+    const engine = new Set(options.engine ?? []);
     const events = new Map<string, unknown[]>();
 
     const sessionManager = new SessionManager(
@@ -114,6 +116,7 @@ function createFixture(options: {
             listByOwner: async (ownerProfileId: string) =>
                 ownerProfileId === OWNER_PROFILE_ID ? [{ id: CHALLENGER_ID }] : [],
         } as never,
+        { getDriverType: (id: string) => engine.has(id) ? `engine` : `stream` } as never,
     );
 
     service.attach();
@@ -244,6 +247,21 @@ test(`a target that is offline or not open is rejected with not-open`, async () 
             return true;
         },
     );
+});
+
+test(`an engine-driven target answers not-open however its stream flag reads: it is played from the dialog`, async () => {
+    /* The registry would call it open; the driver decides. */
+    const fixture = createFixture({ engine: [TARGET_ID] });
+    await assert.rejects(
+        () => challenge(fixture),
+        (error: unknown) => {
+            assert.ok(error instanceof BotChallengeError);
+            assert.equal(error.code, `not-open`);
+            assert.match(error.message, /lobby/);
+            return true;
+        },
+    );
+    assert.equal(fixture.sessions.size, 0);
 });
 
 test(`a target at the concurrent-game cap is rejected with not-open`, async () => {
