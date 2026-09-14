@@ -11,7 +11,7 @@ import RatedFilterTabs from './RatedFilterTabs';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { useQueryAccount } from '../query/accountClient';
-import { PlusIcon, ScanSearchIcon } from 'lucide-react';
+import { BotIcon, PlusIcon, ScanSearchIcon } from 'lucide-react';
 import { useQueryServerShutdown } from '../query/serverClient';
 import BotBadge from './BotBadge';
 import { useNavigate } from 'react-router';
@@ -24,6 +24,8 @@ type PublicMatchesListProps = {
 
     onJoinGame: (sessionId: string) => void
     onCreate: (options: Partial<LobbyOptions>) => void
+    /** The empty state's way to a game when nobody is around; absent while there is no house bot. */
+    onPlayBot?: () => void
 
     className?: string
 };
@@ -245,6 +247,7 @@ export default function PublicMatchesList({
 
     onJoinGame,
     onCreate,
+    onPlayBot,
 }: Readonly<PublicMatchesListProps>) {
     const { t } = useTranslation()
     const navigate = useNavigate();
@@ -338,6 +341,16 @@ export default function PublicMatchesList({
                             >
                                 <PlusIcon className={"mr-2"} /> {t('createMatch', 'Create Match')}
                             </Button>
+                            {onPlayBot && (
+                                <Button
+                                    variant={"secondary"}
+                                    className={"w-full sm:w-40"}
+                                    onClick={onPlayBot}
+                                    disabled={shutdown !== null}
+                                >
+                                    <BotIcon className={"mr-2"} /> {t('playAgainstABot', 'Play against a bot')}
+                                </Button>
+                            )}
                         </div>
                     </div>
                 ) : (

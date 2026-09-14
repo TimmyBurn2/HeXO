@@ -996,5 +996,19 @@
   "botTokenShownOnce": "Copy this token now, it is not shown again:",
   "botAccount": "Bot",
   "botAccountsUnavailable": "Bot accounts could not be loaded.",
-  "botTokenIssued": "Token issued {{date}}"
+  "botTokenIssued": "Token issued {{date}}",
+  "openLobby": "Open lobby",
+  "anyoneCanTakeTheOtherSeat": "Anyone can take the other seat.",
+  "theServerPlaysYouAtTheStrengthYouPick": "The server plays you at the strength you pick.",
+  "busyInEveryGameItCanPlayRightNow": "Busy in every game it can play right now. Try again in a moment.",
+  "strength": "Strength",
+  "custom": "Custom",
+  "thinkTimePerTurn": "Think time per turn",
+  "theLongerItThinksTheDeeperItSearches": "The longer it thinks per turn, the deeper it searches. Games against it are unrated.",
+  "playAgainstABot": "Play against a bot",
+  "beginner": "Beginner",
+  "easy": "Easy",
+  "medium": "Medium",
+  "hard": "Hard",
+  "expert": "Expert"
 }
