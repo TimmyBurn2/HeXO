@@ -61,6 +61,10 @@ export class EngineDriver implements BotSeatDriver {
         return this.seatConfigs.get(sessionId) ?? null;
     }
 
+    releaseSeat(sessionId: string): void {
+        this.seatConfigs.delete(sessionId);
+    }
+
     onStart(): void {
         /* Nothing to announce: the engine has no connection to tell. */
     }
@@ -99,7 +103,7 @@ export class EngineDriver implements BotSeatDriver {
     }
 
     onSessionRemoved(sessionId: string): void {
-        this.seatConfigs.delete(sessionId);
+        this.releaseSeat(sessionId);
     }
 
     /**

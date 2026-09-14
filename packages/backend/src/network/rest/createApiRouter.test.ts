@@ -25,6 +25,8 @@ function createRouter(overrides: {
     user?: AccountUserProfile | null;
     botApiEnabled?: boolean;
     botAccountService?: Partial<Record<string, unknown>>;
+    houseBotService?: Partial<Record<string, unknown>>;
+    sessionManager?: Partial<Record<string, unknown>>;
 }) {
     const botAccountService = {
         listBots: () => Promise.resolve([bot]),
@@ -32,6 +34,16 @@ function createRouter(overrides: {
         rotateToken: () => Promise.resolve({ bot, token: `hxo_rotated` }),
         deleteBot: () => Promise.resolve(),
         ...overrides.botAccountService,
+    };
+
+    const houseBotService = {
+        listBots: () => ({ bots: [], available: true }),
+        createLobby: () => Promise.resolve({ sessionId: `house-session` }),
+        ...overrides.houseBotService,
+    };
+    const sessionManager = {
+        createSession: () => ({ sessionId: `open-session` }),
+        ...overrides.sessionManager,
     };
 
     return new ApiRouter(
@@ -43,11 +55,12 @@ function createRouter(overrides: {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
+        sessionManager as never,
         {} as never,
         {} as never,
         { botApiEnabled: overrides.botApiEnabled ?? true } as never,
         botAccountService as never,
+        houseBotService as never,
     );
 }
 
@@ -152,5 +165,78 @@ test(`the routes are absent while the flag is off`, async () => {
     await withServer(createRouter({ user: owner, botApiEnabled: false }), async (baseUrl) => {
         const response = await fetch(`${baseUrl}/account/bots`);
         assert.equal(response.status, 404);
+    });
+});
+
+test(`house bots are listed while the flag is on and absent while it is off`, async () => {
+    await withServer(createRouter({ user: null }), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/house-bots`);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { bots: [], available: true });
+    });
+
+    await withServer(createRouter({ user: null, botApiEnabled: false }), async (baseUrl) => {
+        assert.equal((await fetch(`${baseUrl}/house-bots`)).status, 404);
+    });
+});
+
+test(`a lobby with an opponent goes to the house bots; with the flag off the key is ignored`, async () => {
+    const seen: unknown[] = [];
+    const router = createRouter({
+        user: null,
+        houseBotService: {
+            createLobby: (_client: unknown, lobbyOptions: unknown, opponent: unknown) => {
+                seen.push({ lobbyOptions, opponent });
+                return Promise.resolve({ sessionId: `house-session` });
+            },
+        },
+    });
+    const body = JSON.stringify({
+        lobbyOptions: { visibility: `private`, rated: true },
+        opponent: { kind: `house-bot`, profileId: `bot-1`, thinkMs: 300 },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, { method: `POST`, headers: { 'Content-Type': `application/json` }, body });
+        assert.equal(response.status, 401, `rated is still the signed-in rule before the opponent is looked at`);
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ lobbyOptions: { visibility: `private` }, opponent: { kind: `house-bot`, profileId: `bot-1`, thinkMs: 300 } }),
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { sessionId: `house-session` });
+        assert.equal(seen.length, 1);
+        assert.deepEqual((seen[0] as { opponent: unknown }).opponent, { kind: `house-bot`, profileId: `bot-1`, thinkMs: 300 });
+    });
+
+    await withServer(createRouter({ user: null, botApiEnabled: false, houseBotService: { createLobby: () => Promise.reject(new Error(`must not be called`)) } }), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ opponent: { kind: `house-bot`, profileId: `bot-1`, thinkMs: `garbage` } }),
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { sessionId: `open-session` });
+    });
+});
+
+test(`a refused house lobby answers with the service's status`, async () => {
+    const router = createRouter({
+        user: null,
+        houseBotService: { createLobby: () => Promise.reject(new ApiRequestError(409, `SealBot is busy.`)) },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ opponent: { kind: `house-bot`, profileId: `bot-1`, thinkMs: 300 } }),
+        });
+        assert.equal(response.status, 409);
+        assert.deepEqual(await response.json(), { error: `SealBot is busy.` });
     });
 });

@@ -25,6 +25,7 @@ import {
     zCreateSandboxPositionRequest,
     zCreateTournamentRequest,
     zLobbyFirstPlayer,
+    zLobbyOpponent,
     zLobbyVisibility,
     zReorderSeedsRequest,
     zRequestMatchExtensionRequest,
@@ -48,6 +49,7 @@ import { ServerShutdownService } from '../../admin/serverShutdownService';
 import { type AccountUserProfile, AuthRepository } from '../../auth/authRepository';
 import { AuthService } from '../../auth/authService';
 import { BotAccountService, MAX_BOTS_PER_OWNER } from '../../bots/botAccountService';
+import { HouseBotService } from '../../bots/houseBotService';
 import { ServerConfig } from '../../config/serverConfig';
 import { DevSupportService } from '../../dev/devSupportService';
 import { SandboxPositionService } from '../../sandbox/sandboxPositionService';
@@ -124,6 +126,10 @@ const zCreateSessionRequestInput = z.object({
         firstPlayer: zLobbyFirstPlayer.optional(),
     }).optional(),
 });
+/* Read only while the flag is on: off, the key is stripped like any unknown one today. */
+const zCreateSessionOpponentInput = z.object({
+    opponent: zLobbyOpponent.optional(),
+});
 
 @injectable()
 export class ApiRouter {
@@ -143,6 +149,7 @@ export class ApiRouter {
         @inject(TournamentService) private readonly tournamentService: TournamentService,
         @inject(ServerConfig) private readonly serverConfig: ServerConfig,
         @inject(BotAccountService) private readonly botAccountService: BotAccountService,
+        @inject(HouseBotService) private readonly houseBotService: HouseBotService,
     ) {
         const router = express.Router();
 
@@ -213,6 +220,11 @@ export class ApiRouter {
         });
 
         if (this.serverConfig.botApiEnabled) {
+            /* The server's own opponents, readable signed out: a guest may play one. */
+            router.get(`/house-bots`, (_req, res) => {
+                res.json(this.houseBotService.listBots());
+            });
+
             router.get(`/account/bots`, async (req, res) => {
                 await this.handleBotAccountRequest(req, res, async (owner) => {
                     const response: BotAccountsResponse = {
@@ -1112,6 +1124,9 @@ export class ApiRouter {
         router.post(`/sessions`, express.json(), async (req, res) => {
             try {
                 const lobbyOptions = this.parseLobbyOptions(req.body);
+                const opponent = this.serverConfig.botApiEnabled
+                    ? zCreateSessionOpponentInput.parse(req.body ?? {}).opponent ?? null
+                    : null;
                 const currentUser = lobbyOptions.rated
                     ? await this.authService.getUserFromRequest(req)
                     : null;
@@ -1121,13 +1136,20 @@ export class ApiRouter {
                     return;
                 }
 
-                const response: CreateSessionResponse = this.sessionManager.createSession({
-                    client: getRequestClientInfo(req),
-                    lobbyOptions,
-                });
+                const response: CreateSessionResponse = opponent
+                    ? await this.houseBotService.createLobby(getRequestClientInfo(req), lobbyOptions, opponent)
+                    : this.sessionManager.createSession({
+                        client: getRequestClientInfo(req),
+                        lobbyOptions,
+                    });
 
                 res.json(response);
             } catch (error: unknown) {
+                if (error instanceof ApiRequestError) {
+                    res.status(error.statusCode).json({ error: error.message });
+                    return;
+                }
+
                 if (error instanceof SessionError) {
                     res.status(409).json({ error: error.message });
                     return;

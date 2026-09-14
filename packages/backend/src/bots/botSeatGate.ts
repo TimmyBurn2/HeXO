@@ -39,14 +39,14 @@ export async function seatBotInLobby(
     bot: AccountUserProfile,
     countActiveGames: (botProfileId: string) => number,
     errors: { offline(): ApiRequestError, capReached(): ApiRequestError, seatLost(): ApiRequestError },
-    maxGames: number = MAX_CONCURRENT_GAMES_PER_BOT,
+    options: { maxGames?: number, displayName?: string } = {},
 ): Promise<string> {
     if (!deps.presence.isOnline(bot.id)) {
         /* No stream, no seat: the game start arrives on the stream. */
         throw errors.offline();
     }
 
-    if (countActiveGames(bot.id) >= maxGames) {
+    if (countActiveGames(bot.id) >= (options.maxGames ?? MAX_CONCURRENT_GAMES_PER_BOT)) {
         throw errors.capReached();
     }
 
@@ -54,7 +54,8 @@ export async function seatBotInLobby(
     const participation = await deps.sessionManager.joinSession(session, {
         deviceId: socketId,
         profile: bot,
-        displayName: bot.username,
+        /* A house bot's seat name carries its strength; a stream bot is just its name. */
+        displayName: options.displayName ?? bot.username,
         allowSelfJoinCasualGames: true,
     });
     if (participation.role !== `player`) {
