@@ -290,6 +290,34 @@ test('picking one of your bots submits it as the opponent, unrated, with the cho
   })
 })
 
+test('opens on a named house bot, not just the first one', async ({ mount }) => {
+  let createRequest: CreateSessionRequest | null = null
+  const twoHouseBots: HouseBotsResponse = {
+    ...houseBots,
+    bots: [
+      { ...houseBots.bots[0], profileId: 'house-dummy', displayName: 'Dummy' },
+      houseBots.bots[0],
+    ],
+  }
+
+  const component = await mount(
+    <CreateLobbyDialog
+      isOpen
+      initialOpponent={{ kind: 'house-bot', profileId: 'house-seal' }}
+      onClose={() => { }}
+      account={null}
+      houseBots={twoHouseBots}
+      onCreateLobby={(request) => {
+        createRequest = request
+      }}
+    />
+  )
+
+  await expect(component.getByText('SealBot 0.3s')).toBeVisible()
+  await component.getByRole('button', { name: /^Create Lobby$/i }).click()
+  await expect.poll(() => createRequest?.opponent).toEqual({ kind: 'house-bot', profileId: 'house-seal', thinkMs: 300 })
+})
+
 test('a guest opens on a named community bot and can play it', async ({ mount }) => {
   let createRequest: CreateSessionRequest | null = null
 

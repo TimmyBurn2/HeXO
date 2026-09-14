@@ -1,11 +1,11 @@
 import type { BotListing, CreateSessionRequest } from '@ih3t/shared';
 import { Navigate } from 'react-router';
 import { toast } from 'react-toastify';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next'
 
 import BotRosterScreen from '../components/BotRosterScreen';
-import CreateLobbyDialog from '../components/CreateLobbyDialog';
+import CreateLobbyDialog, { type LobbyOpponentChoice } from '../components/CreateLobbyDialog';
 import PageMetadata from '../components/PageMetadata';
 import { joinSession } from '../liveGameClient';
 import { useQueryAccount, useQueryAccountBots } from '../query/accountClient';
@@ -22,6 +22,15 @@ function BotsRoute() {
         enabled: !accountQuery.isLoading && Boolean(accountQuery.data?.user),
     });
     const [playingBot, setPlayingBot] = useState<BotListing | null>(null);
+    /* A house bot on the roster opens the dialog on its strength picker, not on a stream seat;
+     * a string-keyed memo, so a re-render with the same choice does not reset the dialog. */
+    const houseBots = houseBotsQuery.data ?? null;
+    const initialOpponent = useMemo<LobbyOpponentChoice>(
+        () => playingBot
+            ? { kind: houseBots?.bots.some((bot) => bot.profileId === playingBot.profileId) ? `house-bot` : `bot`, profileId: playingBot.profileId }
+            : `open`,
+        [playingBot, houseBots],
+    );
 
     /* Null, not undefined: the roster route is absent while the flag is off. */
     if (botsQuery.data === null && !botsQuery.isLoading) {
@@ -72,7 +81,7 @@ function BotsRoute() {
 
             <CreateLobbyDialog
                 isOpen={playingBot !== null}
-                initialOpponent={playingBot ? { kind: `bot`, profileId: playingBot.profileId } : `open`}
+                initialOpponent={initialOpponent}
                 onClose={() => setPlayingBot(null)}
                 account={accountQuery.data?.user ?? null}
                 houseBots={houseBotsQuery.data ?? null}

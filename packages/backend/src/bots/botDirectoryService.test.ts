@@ -15,12 +15,14 @@ import type { BotAccount, BotListing } from '@ih3t/shared';
 import type { BotAccountRepository } from './botAccountRepository';
 import { BotDirectoryService } from './botDirectoryService';
 import { BotPlayerMapper } from './botPlayerMapper';
+import type { BotSeatManager } from './botSeatManager';
 import type { BotStreamRegistry } from './botStreamRegistry';
 
 const HUMAN_PROFILE_ID = `human-1`;
 const OWNER_PROFILE_ID = `owner-1`;
 const ONLINE_BOT_ID = `bot-online`;
 const OFFLINE_BOT_ID = `bot-offline`;
+const HOUSE_BOT_ID = `bot-house`;
 
 const HUMAN_PROFILE: AccountUserProfile = {
     id: HUMAN_PROFILE_ID,
@@ -38,7 +40,7 @@ function botProfile(id: string): AccountUserProfile {
     return { ...HUMAN_PROFILE, id, username: id, kind: `bot` };
 }
 
-function botAccount(id: string, ownerProfileId: string = OWNER_PROFILE_ID): BotAccount {
+function botAccount(id: string, ownerProfileId: string | null = OWNER_PROFILE_ID): BotAccount {
     return { id, username: id, image: null, ownerProfileId, createdAt: 0, tokenRotatedAt: null };
 }
 
@@ -73,14 +75,17 @@ function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[]
     const sessions = (sessionManager as unknown as { sessions: Map<string, ServerGameSession> }).sessions;
 
     const botAccountRepository = {
-        listAll: async () => [botAccount(ONLINE_BOT_ID), botAccount(OFFLINE_BOT_ID, `owner-2`)],
+        listAll: async () => [botAccount(ONLINE_BOT_ID), botAccount(OFFLINE_BOT_ID, `owner-2`), botAccount(HOUSE_BOT_ID, null)],
         findById: async (id: string) => (id === ONLINE_BOT_ID || id === OFFLINE_BOT_ID) ? botAccount(id) : null,
     };
     const authRepository = {
         getUserProfileById: async (id: string) => (id === ONLINE_BOT_ID || id === OFFLINE_BOT_ID) ? botProfile(id) : null,
     };
     const eloHandler = {
-        getPlayerRating: async (id: string) => ({ eloScore: id === ONLINE_BOT_ID ? 1_500.4 : 900, gameCount: 3 }),
+        getPlayerRating: async (id: string) => ({ eloScore: id === ONLINE_BOT_ID ? 1_500.4 : id === HOUSE_BOT_ID ? 1_200 : 900, gameCount: 3 }),
+    };
+    const botSeatManager = {
+        getDriverType: (id: string) => id === HOUSE_BOT_ID ? `engine` : `stream`,
     };
     const registry = {
         isOnline,
@@ -95,6 +100,7 @@ function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[]
         new BotPlayerMapper(eloHandler as never),
         sessionManager,
         registry as unknown as BotStreamRegistry,
+        botSeatManager as unknown as BotSeatManager,
     );
 
     return { sessionManager, service, sessions };
@@ -142,8 +148,23 @@ test(`the roster is sorted by rating and narrows to connected bots on demand`, a
     const everyone = await service.listBots(false);
     const connected = await service.listBots(true);
 
-    assert.deepEqual(everyone.map(({ profileId }) => profileId), [ONLINE_BOT_ID, OFFLINE_BOT_ID]);
-    assert.deepEqual(connected.map(({ profileId }) => profileId), [ONLINE_BOT_ID]);
+    assert.deepEqual(everyone.map(({ profileId }) => profileId), [ONLINE_BOT_ID, HOUSE_BOT_ID, OFFLINE_BOT_ID]);
+    assert.deepEqual(connected.map(({ profileId }) => profileId), [ONLINE_BOT_ID, HOUSE_BOT_ID]);
+});
+
+test(`an engine-driven bot is on the roster as always online, never open, with no owner`, async () => {
+    const { service } = createFixture();
+
+    const listing = (await service.listBots(false)).find((candidate) => candidate.profileId === HOUSE_BOT_ID);
+
+    assert.deepEqual(listing, {
+        profileId: HOUSE_BOT_ID,
+        displayName: HOUSE_BOT_ID,
+        elo: 1_200,
+        owner: undefined,
+        online: true,
+        openForChallenges: false,
+    });
 });
 
 test(`a community-bot lobby is a normal lobby with the bot already seated`, async () => {

@@ -8,8 +8,8 @@ import BotBadge from './BotBadge';
 import { LobbyDialogShell, LobbyTimeControlSelector, SelectableOptions, useLobbyTimeControl } from './lobbyOptionsShared';
 import { useTranslation } from 'react-i18next'
 
-/** What the dialog opens on: an open lobby, the first house bot, or one named community bot. */
-export type LobbyOpponentChoice = `open` | `house-bot` | { kind: `bot`, profileId: string };
+/** What the dialog opens on: an open lobby, the first house bot, or one named bot, house or community. */
+export type LobbyOpponentChoice = `open` | `house-bot` | { kind: `house-bot` | `bot`, profileId: string };
 
 type CreateLobbyDialogProps = {
     isOpen: boolean
@@ -143,8 +143,10 @@ function CreateLobbyDialog({
     useEffect(() => {
         if (isOpen) {
             setShowAdvancedOptions(false);
-            if (typeof initialOpponent === `object`) {
+            if (typeof initialOpponent === `object` && initialOpponent.kind === `bot`) {
                 selectCommunityBot(initialOpponent.profileId);
+            } else if (typeof initialOpponent === `object`) {
+                selectBot(canPickBot ? houseBots.bots.find((bot) => bot.profileId === initialOpponent.profileId) ?? null : null);
             } else {
                 selectBot(initialOpponent === `house-bot` && canPickBot ? houseBots.bots[0] : null);
             }
