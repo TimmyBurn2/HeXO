@@ -10,6 +10,7 @@ import { BotAccountService } from '../bots/botAccountService';
 import { BotSeatManager } from '../bots/botSeatManager';
 import { EngineDriver } from '../bots/drivers/engineDriver';
 import { EngineWorkerPool } from '../bots/drivers/engineWorkerPool';
+import { HouseBotService } from '../bots/houseBotService';
 import { ServerConfig } from '../config/serverConfig';
 import { DevSupportService } from '../dev/devSupportService';
 import { EloHandler } from '../elo/eloHandler';
@@ -61,6 +62,7 @@ export function createAppContainer(): DependencyContainer {
         { size: serverConfig.houseBotMaxGames },
     ));
     appContainer.registerSingleton(EngineDriver);
+    appContainer.registerSingleton(HouseBotService);
     appContainer.registerSingleton(EloRepository);
     appContainer.registerSingleton(EloHandler);
     appContainer.registerSingleton(ServerSettingsRepository);

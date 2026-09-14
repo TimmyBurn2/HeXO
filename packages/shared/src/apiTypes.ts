@@ -124,6 +124,11 @@ export const zHouseBotsResponse = z.object({
 });
 export type HouseBotsResponse = z.infer<typeof zHouseBotsResponse>;
 
+/** `300` → `0.3s`: how a think time reads on a seat and in the picker. */
+export function formatThinkSeconds(thinkMs: number): string {
+    return `${thinkMs / 1000}s`;
+}
+
 /* Who takes the other seat of a new lobby; absent means an open lobby. */
 export const zLobbyOpponent = z.discriminatedUnion(`kind`, [
     z.object({
