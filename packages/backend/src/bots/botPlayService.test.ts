@@ -14,6 +14,7 @@ import { GameSimulation } from '../simulation/gameSimulation';
 import { GameTimeControlManager } from '../simulation/gameTimeControlManager';
 import type { BotAccountRepository } from './botAccountRepository';
 import { BotPlayerMapper } from './botPlayerMapper';
+import { BotSeatManager } from './botSeatManager';
 import { BotMoveError, BotPlayService } from './botPlayService';
 import { type BotStreamConnection, BotStreamRegistry } from './botStreamRegistry';
 import { ApiRequestError } from '../network/rest/apiQueryService';
@@ -93,7 +94,12 @@ function createFixture(): Fixture {
     (sessionManager as unknown as { sessions: Map<string, ServerGameSession> }).sessions.set(sessionId, session);
 
     const eloHandler = { getPlayerRating: () => Promise.resolve({ eloScore: 1_337, gameCount: 4 }) };
-    const registry = new BotStreamRegistry(pino({ level: `silent` }), sessionManager, new BotPlayerMapper(eloHandler as never));
+    const registry = new BotStreamRegistry(
+        pino({ level: `silent` }),
+        sessionManager,
+        new BotPlayerMapper(eloHandler as never),
+        new BotSeatManager(pino({ level: `silent` }), sessionManager),
+    );
     /* The declaration the bot's own PATCH last left behind; the service only reads
      * and relays it, the repository owns the storing. */
     let declaration: BotDeclaration | undefined;

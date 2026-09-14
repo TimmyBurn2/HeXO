@@ -12,6 +12,7 @@ import { createGameSession, type ServerGameSession } from '../session/types';
 import { GameSimulation } from '../simulation/gameSimulation';
 import { GameTimeControlManager } from '../simulation/gameTimeControlManager';
 import { BotPlayerMapper } from './botPlayerMapper';
+import { BotSeatManager } from './botSeatManager';
 import { type BotStreamConnection, BotStreamRegistry } from './botStreamRegistry';
 
 const BOT_PROFILE_ID = `bot-1`;
@@ -194,10 +195,12 @@ function botTest(
     test(name, async (t) => {
         const sessionManager = createSessionManager();
         const session = seedSession(sessionManager, options);
+        const seatManager = new BotSeatManager(pino({ level: `silent` }), sessionManager);
         const registry = new BotStreamRegistry(
             pino({ level: `silent` }),
             sessionManager,
             new BotPlayerMapper({ getPlayerRating: () => Promise.resolve({ eloScore: 0, gameCount: 0 }) } as never),
+            seatManager,
         );
         registry.attach();
 
@@ -205,6 +208,7 @@ function botTest(
             await body({ sessionManager, session, registry, connection: new FakeConnection() }, t);
         } finally {
             registry.detach();
+            seatManager.detach();
             (sessionManager as unknown as { timeControl: { dispose: () => void } }).timeControl.dispose();
             for (const player of session.players) {
                 if (player.connection.status === `orphaned`) {
