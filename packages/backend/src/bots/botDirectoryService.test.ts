@@ -3,11 +3,11 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { type SessionId } from '@ih3t/shared';
+import { type LobbyOptions, type SessionId } from '@ih3t/shared';
 import pino from 'pino';
 
 import type { AccountUserProfile, AuthRepository } from '../auth/authRepository';
-import { SessionManager } from '../session/sessionManager';
+import { BOT_ONLY_LOBBY_ABANDONED_AFTER_MS, SessionManager } from '../session/sessionManager';
 import { createGameSession, type ServerGameSession } from '../session/types';
 import { GameSimulation } from '../simulation/gameSimulation';
 import { GameTimeControlManager } from '../simulation/gameTimeControlManager';
@@ -48,8 +48,13 @@ type Fixture = {
     sessions: Map<string, ServerGameSession>;
 };
 
-function createFixture(options: { onlineBotIds?: string[], onlineResult?: (callIndex: number) => boolean } = {}): Fixture {
+const CLIENT = { ip: `127.0.0.1` } as never;
+const OPTIONS: LobbyOptions = { visibility: `public`, timeControl: { mode: `unlimited` }, rated: true, firstPlayer: `host` };
+const OPPONENT = { kind: `bot` as const, profileId: ONLINE_BOT_ID };
+
+function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[], onlineResult?: (callIndex: number) => boolean } = {}): Fixture {
     const online = new Set(options.onlineBotIds ?? [ONLINE_BOT_ID]);
+    const open = new Set(options.openBotIds ?? [...online]);
     let onlineCalls = 0;
     const isOnline = (id: string) => options.onlineResult
         ? options.onlineResult(onlineCalls += 1)
@@ -79,6 +84,7 @@ function createFixture(options: { onlineBotIds?: string[], onlineResult?: (callI
     };
     const registry = {
         isOnline,
+        isOpenForChallenges: (id: string) => open.has(id),
         getSocketId: (id: string) => `bot:${id}`,
     };
 
@@ -123,9 +129,10 @@ test(`the roster carries owner, rounded elo and connection state`, async () => {
         elo: 1_500,
         owner: OWNER_PROFILE_ID,
         online: true,
-        openForChallenges: false,
+        openForChallenges: true,
     });
     assert.equal(byId.get(OFFLINE_BOT_ID)?.online, false);
+    assert.equal(byId.get(OFFLINE_BOT_ID)?.openForChallenges, false, `openness is read off the stream, never guessed`);
     assert.equal(byId.get(OFFLINE_BOT_ID)?.owner, `owner-2`);
 });
 
@@ -139,40 +146,35 @@ test(`the roster is sorted by rating and narrows to connected bots on demand`, a
     assert.deepEqual(connected.map(({ profileId }) => profileId), [ONLINE_BOT_ID]);
 });
 
-test(`a bot session reserves both seats and claims the bot's seat`, async () => {
+test(`a community-bot lobby is a normal lobby with the bot already seated`, async () => {
     const { sessionManager, service, sessions } = createFixture();
 
-    const response = await service.createBotSession(HUMAN_PROFILE, ONLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-        timeControl: { mode: `unlimited` },
-    });
+    const response = await service.createLobby(CLIENT, OPTIONS, OPPONENT);
 
     const session = sessionManager.requireSession(response.sessionId);
     assert.equal(sessions.has(session.id), true);
-    assert.equal(session.gameOptions.visibility, `private`);
+    assert.equal(session.gameOptions.visibility, `public`, `visibility follows the dialog`);
+    assert.deepEqual(session.gameOptions.timeControl, { mode: `unlimited` });
     assert.equal(session.gameOptions.rated, false, `a bot seat is never rated`);
-    assert.deepEqual(session.reservedPlayerProfileIds, [HUMAN_PROFILE_ID, ONLINE_BOT_ID]);
+    assert.equal(session.gameOptions.firstPlayer, `random`);
+    assert.deepEqual(session.reservedPlayerProfileIds, [], `no reserved seats: whoever comes takes the open one`);
 
     assert.equal(session.players.length, 1, `the human has not joined yet`);
     const botSeat = session.players[0];
     assert.equal(botSeat.profileId, ONLINE_BOT_ID);
+    assert.equal(botSeat.displayName, ONLINE_BOT_ID);
     assert.equal(botSeat.isBot, true);
-    assert.equal(botSeat.connection.status, `connected`);
-    assert.equal(botSeat.deviceId, `bot:${ONLINE_BOT_ID}`);
-
-    assert.deepEqual(sessionManager.getSessionInfo(session.id)?.players.map(({ isBot }) => isBot), [true],
-        `the socket contract carries the seat kind`);
+    assert.equal(botSeat.connection.status === `connected` && botSeat.connection.socketId, `bot:${ONLINE_BOT_ID}`);
+    assert.equal(sessionManager.listLobbyInfo().length, 1, `it counts as a lobby`);
 });
-
 
 test(`a stream that drops while the seat is claimed gives the seat back`, async () => {
     /* Online for the guard, offline by the time the seat is claimed. */
     const { sessionManager, service } = createFixture({ onlineResult: (callIndex) => callIndex === 1 });
 
     await assert.rejects(
-        () => service.createBotSession(HUMAN_PROFILE, ONLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-            timeControl: { mode: `unlimited` },
-        }),
-        /not connected/,
+        () => service.createLobby(CLIENT, OPTIONS, OPPONENT),
+        (error: unknown) => error instanceof Error && (error as { statusCode?: number }).statusCode === 503 && /not connected/.test(error.message),
     );
 
     const sessions = (sessionManager as unknown as { sessions: Map<string, ServerGameSession> }).sessions;
@@ -180,52 +182,44 @@ test(`a stream that drops while the seat is claimed gives the seat back`, async 
     assert.ok(!remaining || remaining.players.length === 0, `the seat was given back`);
 });
 
-test(`a reserved lobby whose human never joins is abandoned again`, async () => {
+test(`a community-bot lobby nobody comes to is reaped like a house bot's`, async () => {
     const { sessionManager, service, sessions } = createFixture();
 
-    const response = await service.createBotSession(HUMAN_PROFILE, ONLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-        timeControl: { mode: `unlimited` },
-    });
-    const session = sessionManager.requireSession(response.sessionId);
-    session.createdAt = Date.now() - 61_000;
-
-    await sessionManager.tickAllSessions();
-
-    assert.equal(sessions.has(session.id), false, `the lobby was reaped`);
-});
-
-test(`a reserved lobby waits out its grace before being abandoned`, async () => {
-    const { sessionManager, service, sessions } = createFixture();
-
-    const response = await service.createBotSession(HUMAN_PROFILE, ONLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-        timeControl: { mode: `unlimited` },
-    });
+    const response = await service.createLobby(CLIENT, OPTIONS, OPPONENT);
     const session = sessionManager.requireSession(response.sessionId);
     session.createdAt = Date.now() - 10_000;
-
     await sessionManager.tickAllSessions();
-
     assert.equal(sessions.has(session.id), true, `still within the window`);
+
+    session.createdAt = Date.now() - BOT_ONLY_LOBBY_ABANDONED_AFTER_MS - 1_000;
+    await sessionManager.tickAllSessions();
+    assert.equal(sessions.has(session.id), false, `the lobby was reaped`);
 });
 
 test(`a bot that holds no stream cannot be played`, async () => {
     const { service } = createFixture();
 
     await assert.rejects(
-        () => service.createBotSession(HUMAN_PROFILE, OFFLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-            timeControl: { mode: `unlimited` },
-        }),
-        /not connected/,
+        () => service.createLobby(CLIENT, OPTIONS, { kind: `bot`, profileId: OFFLINE_BOT_ID }),
+        (error: unknown) => error instanceof Error && (error as { statusCode?: number }).statusCode === 503 && /not connected/.test(error.message),
     );
+});
+
+test(`a bot connected without open=1 is not offered a game from the dialog`, async () => {
+    const { service, sessions } = createFixture({ openBotIds: [] });
+
+    await assert.rejects(
+        () => service.createLobby(CLIENT, OPTIONS, OPPONENT),
+        (error: unknown) => error instanceof Error && (error as { statusCode?: number }).statusCode === 503 && /not taking games/.test(error.message),
+    );
+    assert.equal(sessions.size, 0, `refused before a lobby exists`);
 });
 
 test(`an unknown bot is a 404, not a 500`, async () => {
     const { service } = createFixture();
 
     await assert.rejects(
-        () => service.createBotSession(HUMAN_PROFILE, `bot-nope`, { ip: `127.0.0.1` } as never, {
-            timeControl: { mode: `unlimited` },
-        }),
+        () => service.createLobby(CLIENT, OPTIONS, { kind: `bot`, profileId: `bot-nope` }),
         (error: unknown) => {
             assert.ok(error instanceof Error);
             assert.equal((error as { statusCode?: number }).statusCode, 404);
@@ -250,9 +244,7 @@ test(`a bot at the concurrent-game cap cannot be played`, async () => {
     }
 
     await assert.rejects(
-        () => service.createBotSession(HUMAN_PROFILE, ONLINE_BOT_ID, { ip: `127.0.0.1` } as never, {
-            timeControl: { mode: `unlimited` },
-        }),
-        /4 games/,
+        () => service.createLobby(CLIENT, OPTIONS, OPPONENT),
+        (error: unknown) => error instanceof Error && (error as { statusCode?: number }).statusCode === 409 && /4 games/.test(error.message),
     );
 });

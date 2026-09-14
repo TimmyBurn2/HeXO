@@ -1022,7 +1022,7 @@
   "playABot": "Gegen einen Bot spielen",
   "playBot": "Spielen",
   "yourBotJoinsTheOtherSeat": "Dein Bot nimmt den anderen Platz ein.",
-  "botGameNote": "Partien gegen einen Bot sind ungewertet, privat, und der beginnende Spieler wird zufällig gewählt.",
+  "botGameNote": "Partien gegen einen Bot sind ungewertet, und der beginnende Spieler wird zufällig gewählt.",
   "loadingBots": "Bots werden geladen…",
   "aCommunityBotOnlineRightNow": "Ein Community-Bot, gerade online."
 }

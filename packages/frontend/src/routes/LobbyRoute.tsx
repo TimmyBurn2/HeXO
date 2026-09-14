@@ -7,7 +7,7 @@ import PageMetadata, { DEFAULT_PAGE_TITLE } from '../components/PageMetadata';
 import { joinSession } from '../liveGameClient';
 import { useLiveGameStore } from '../liveGameStore';
 import { useQueryAccount, useQueryAccountBots, useQueryAccountPreferences } from '../query/accountClient';
-import { createBotSession, useQueryBots } from '../query/botsClient';
+import { useQueryBots } from '../query/botsClient';
 import { useQueryHouseBots } from '../query/houseBotsClient';
 import { useQueryServerShutdown } from '../query/serverClient';
 import { hostGame } from '../query/sessionClient';
@@ -36,16 +36,10 @@ function LobbyRoute() {
         ? countUnreadChangelogEntries(CHANGELOG_DAYS, accountPreferencesQuery.data.preferences.changelogReadAt)
         : 0;
 
-    const createLobby = (request: CreateSessionRequest, botProfileId?: string) => {
+    const createLobby = (request: CreateSessionRequest) => {
         void (async () => {
             try {
-                /* A community bot takes the reserved-seat route; the options that do not
-                 * apply to it (visibility, first player, rating) are decided server-side. */
-                const sessionId = botProfileId
-                    ? await createBotSession(botProfileId, {
-                        timeControl: request.lobbyOptions?.timeControl,
-                    })
-                    : await hostGame(request);
+                const sessionId = await hostGame(request);
                 if (!sessionId) {
                     return;
                 }

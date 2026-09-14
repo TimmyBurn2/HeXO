@@ -1022,7 +1022,7 @@
   "playABot": "与机器人对战",
   "playBot": "对战",
   "yourBotJoinsTheOtherSeat": "你的机器人坐在另一个座位上。",
-  "botGameNote": "与机器人的对局不计分、保持私密，先手随机决定。",
+  "botGameNote": "与机器人的对局不计分，先手随机决定。",
   "loadingBots": "正在加载机器人…",
   "aCommunityBotOnlineRightNow": "一个社区机器人，现在在线。"
 }

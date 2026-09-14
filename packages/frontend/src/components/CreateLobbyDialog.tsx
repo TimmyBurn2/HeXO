@@ -22,8 +22,8 @@ type CreateLobbyDialogProps = {
     /** Community bots holding a stream right now; null while the flag is off. */
     onlineBots?: BotListing[] | null
     initialOpponent?: LobbyOpponentChoice
-    /** A community bot takes the reserved-seat route, named by its profile id. */
-    onCreateLobby: (request: CreateSessionRequest, botProfileId?: string) => void
+    /** A bot opponent, house or community, rides on the request; the route is the same. */
+    onCreateLobby: (request: CreateSessionRequest) => void
 };
 
 type LocalizedOption<T> = {
@@ -138,6 +138,8 @@ function CreateLobbyDialog({
             .map((bot) => ({ profileId: bot.profileId, username: bot.displayName, own: false })),
     ];
 
+    /* A string key, so a parent re-rendering with an equal choice does not reset the dialog. */
+    const initialOpponentKey = typeof initialOpponent === `object` ? `${initialOpponent.kind}:${initialOpponent.profileId}` : initialOpponent;
     useEffect(() => {
         if (isOpen) {
             setShowAdvancedOptions(false);
@@ -149,7 +151,7 @@ function CreateLobbyDialog({
         }
         /* Opening resets the opponent; what the lists hold while open is not a reset. */
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, initialOpponent]);
+    }, [isOpen, initialOpponentKey]);
 
     const selectedBot = opponentBotId
         ? houseBots?.bots.find((bot) => bot.profileId === opponentBotId) ?? null
@@ -166,10 +168,10 @@ function CreateLobbyDialog({
 
     const selectedFirstPlayer = firstPlayerOptions.find((option) => option.value === firstPlayer) ?? firstPlayerOptions[0];
     /* A bot seat is never rated and the server picks who starts; the dialog stops
-     * offering choices it would not honour. A community bot's lobby is private too. */
+     * offering choices it would not honour. */
     const isRated = botSeated ? false : rated;
     const firstPlayerTitle = botSeated ? t('random', 'Random') : selectedFirstPlayer.title(t);
-    const visibilityTitle = selectedCommunityBot || visibility === `private` ? t('private', 'Private') : t('public', 'Public');
+    const visibilityTitle = visibility === `private` ? t('private', 'Private') : t('public', 'Public');
 
     if (!isOpen) {
         return null;
@@ -186,9 +188,11 @@ function CreateLobbyDialog({
         };
         if (selectedBot) {
             request.opponent = { kind: `house-bot`, profileId: selectedBot.profileId, thinkMs };
+        } else if (selectedCommunityBot) {
+            request.opponent = { kind: `bot`, profileId: selectedCommunityBot.profileId };
         }
 
-        onCreateLobby(request, selectedCommunityBot?.profileId);
+        onCreateLobby(request);
     };
 
     const badges = [
@@ -255,7 +259,7 @@ function CreateLobbyDialog({
 
             {selectedCommunityBot && (
                 <div className="mt-2.5 rounded-[0.9rem] border border-white/8 bg-white/4 px-3 py-2.5 text-xs leading-5 text-slate-300">
-                    {t('botGameNote', 'Games against a bot are unrated, private, and the first player is chosen at random.')}
+                    {t('botGameNote', 'Games against a bot are unrated and the first player is chosen at random.')}
                 </div>
             )}
 
@@ -433,7 +437,6 @@ function CreateLobbyDialog({
                                     </section>
                                     )}
 
-                                    {!selectedCommunityBot && (
                                     <section className="p-0">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -465,7 +468,6 @@ function CreateLobbyDialog({
                                             })}
                                         </div>
                                     </section>
-                                    )}
 
                                     {!botSeated && (
                                     <section className="p-0">

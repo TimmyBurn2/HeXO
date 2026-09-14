@@ -70,7 +70,7 @@ function createRouter(overrides: {
         { getBotFromRequest: () => Promise.resolve(overrides.botToken ?? null) } as never,
         {
             listBots: () => Promise.resolve([]),
-            createBotSession: () => Promise.resolve({ sessionId: `fresh-session` }),
+            createLobby: () => Promise.resolve({ sessionId: `fresh-session` }),
             ...overrides.botDirectoryService,
         } as never,
         {
@@ -217,7 +217,6 @@ test(`the play routes do not exist while the flag is off`, async () => {
             [`POST`, `/bot/game/game-1/resign`],
             [`POST`, `/bot/session/abc123/join`],
             [`GET`, `/bots`],
-            [`POST`, `/bots/bot-1/session`],
         ] as const) {
             const response = await fetch(`${baseUrl}${path}`, { method });
             assert.equal(response.status, 404, path);
@@ -373,73 +372,77 @@ test(`the bot roster is readable without signing in`, async () => {
     });
 });
 
-test(`starting a bot session requires signing in`, async () => {
-    const router = createRouter({ user: null });
-
-    await withServer(router, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/bots/bot-1/session`, { method: `POST` });
-
-        assert.equal(response.status, 401);
-    });
-});
-
-test(`starting a bot session answers with the new session id`, async () => {
-    const seenOptions: object[] = [];
+test(`a community bot as the opponent goes to the directory service, guest or not`, async () => {
+    const seen: unknown[] = [];
     const router = createRouter({
-        user: owner,
+        user: null,
         botDirectoryService: {
-            createBotSession: (_user: AccountUserProfile, profileId: string, _client: unknown, options: object) => {
-                seenOptions.push({ profileId, options });
+            createLobby: (_client: unknown, lobbyOptions: unknown, opponent: unknown) => {
+                seen.push({ lobbyOptions, opponent });
                 return Promise.resolve({ sessionId: `fresh-session` });
             },
         },
     });
 
     await withServer(router, async (baseUrl) => {
-        /* A legacy body still asking for a rated game gets the field dropped on the
-         * floor: a bot seat is never rated, and the server does not pretend to obey. */
-        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+        const response = await fetch(`${baseUrl}/sessions`, {
             method: `POST`,
             headers: { 'Content-Type': `application/json` },
-            body: JSON.stringify({ rated: true }),
+            body: JSON.stringify({ lobbyOptions: { visibility: `private` }, opponent: { kind: `bot`, profileId: `bot-1` } }),
         });
 
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { sessionId: `fresh-session` });
-        assert.deepEqual(seenOptions, [{
-            profileId: `bot-1`,
-            options: { timeControl: { mode: `turn`, turnTimeMs: 45_000 } },
+        assert.deepEqual(seen, [{
+            lobbyOptions: { visibility: `private`, timeControl: { mode: `turn`, turnTimeMs: 45_000 }, rated: false, firstPlayer: `random` },
+            opponent: { kind: `bot`, profileId: `bot-1` },
         }]);
     });
-});
 
-test(`a malformed bot session request answers 400`, async () => {
-    const router = createRouter({ user: owner });
-
-    await withServer(router, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+    await withServer(createRouter({ user: null, botApiEnabled: false, botDirectoryService: { createLobby: () => Promise.reject(new Error(`must not be called`)) } }), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, {
             method: `POST`,
             headers: { 'Content-Type': `application/json` },
-            body: JSON.stringify({ timeControl: { mode: `nonsense` } }),
+            body: JSON.stringify({ opponent: { kind: `bot`, profileId: `bot-1` } }),
         });
+        assert.equal(response.status, 200, `flag off, the key is ignored like any unknown one`);
+        assert.deepEqual(await response.json(), { sessionId: `open-session` });
+    });
 
-        assert.equal(response.status, 400);
+    await withServer(createRouter({ user: null }), async (baseUrl) => {
+        assert.equal((await fetch(`${baseUrl}/bots/bot-1/session`, { method: `POST` })).status, 404, `the reserved-seat route is gone`);
     });
 });
 
-test(`a bot session the session manager refuses answers 409`, async () => {
+test(`a refused community-bot lobby answers with the service's status`, async () => {
     const router = createRouter({
-        user: owner,
+        user: null,
+        botDirectoryService: { createLobby: () => Promise.reject(new ApiRequestError(503, `That bot is not taking games right now.`)) },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/sessions`, {
+            method: `POST`,
+            headers: { 'Content-Type': `application/json` },
+            body: JSON.stringify({ opponent: { kind: `bot`, profileId: `bot-1` } }),
+        });
+        assert.equal(response.status, 503);
+        assert.deepEqual(await response.json(), { error: `That bot is not taking games right now.` });
+    });
+});
+test(`a community-bot lobby the session manager refuses answers 409`, async () => {
+    const router = createRouter({
+        user: null,
         botDirectoryService: {
-            createBotSession: () => Promise.reject(new SessionError(`The server is currently at its concurrent game limit (2). Please wait for another game to finish before creating a new one.`)),
+            createLobby: () => Promise.reject(new SessionError(`The server is currently at its concurrent game limit (2). Please wait for another game to finish before creating a new one.`)),
         },
     });
 
     await withServer(router, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/bots/bot-1/session`, {
+        const response = await fetch(`${baseUrl}/sessions`, {
             method: `POST`,
             headers: { 'Content-Type': `application/json` },
-            body: JSON.stringify({ rated: true }),
+            body: JSON.stringify({ opponent: { kind: `bot`, profileId: `bot-1` } }),
         });
 
         assert.equal(response.status, 409);

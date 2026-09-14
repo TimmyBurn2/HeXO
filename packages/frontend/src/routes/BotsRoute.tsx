@@ -9,7 +9,7 @@ import CreateLobbyDialog from '../components/CreateLobbyDialog';
 import PageMetadata from '../components/PageMetadata';
 import { joinSession } from '../liveGameClient';
 import { useQueryAccount, useQueryAccountBots } from '../query/accountClient';
-import { createBotSession, useQueryBots } from '../query/botsClient';
+import { useQueryBots } from '../query/botsClient';
 import { useQueryHouseBots } from '../query/houseBotsClient';
 import { hostGame } from '../query/sessionClient';
 
@@ -29,12 +29,10 @@ function BotsRoute() {
     }
 
     /* The same picker as the lobby, opened on the chosen bot; Play here is a shortcut. */
-    const createLobby = (request: CreateSessionRequest, botProfileId?: string) => {
+    const createLobby = (request: CreateSessionRequest) => {
         void (async () => {
             try {
-                const sessionId = botProfileId
-                    ? await createBotSession(botProfileId, { timeControl: request.lobbyOptions?.timeControl })
-                    : await hostGame(request);
+                const sessionId = await hostGame(request);
                 setPlayingBot(null);
 
                 /* Joining switches the screen to the lobby, same as hosting one. */
