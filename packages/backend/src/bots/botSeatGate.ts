@@ -29,8 +29,9 @@ export function underBotSeatGate<T>(claim: () => Promise<T>): Promise<T> {
 /**
  * The claim itself, always run under `underBotSeatGate`: count the bot's games,
  * take the seat, and give it straight back if the stream dropped mid-claim. One
- * atomic claim, or a race seats a bot past its cap; the count and the error
- * factories stay with the caller, whose feature owns what “active” means.
+ * atomic claim, or a race seats a bot past its cap; the count, the cap and the
+ * error factories stay with the caller, whose feature owns what “active” means —
+ * a stream bot is capped alone, a house bot shares its cap with its whole pool.
  */
 export async function seatBotInLobby(
     deps: { sessionManager: SessionManager, presence: BotSeatPresence },
@@ -38,13 +39,14 @@ export async function seatBotInLobby(
     bot: AccountUserProfile,
     countActiveGames: (botProfileId: string) => number,
     errors: { offline(): ApiRequestError, capReached(): ApiRequestError, seatLost(): ApiRequestError },
+    maxGames: number = MAX_CONCURRENT_GAMES_PER_BOT,
 ): Promise<string> {
     if (!deps.presence.isOnline(bot.id)) {
         /* No stream, no seat: the game start arrives on the stream. */
         throw errors.offline();
     }
 
-    if (countActiveGames(bot.id) >= MAX_CONCURRENT_GAMES_PER_BOT) {
+    if (countActiveGames(bot.id) >= maxGames) {
         throw errors.capReached();
     }
 

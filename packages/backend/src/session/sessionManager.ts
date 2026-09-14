@@ -101,11 +101,11 @@ export type RematchCreateResult = {
 export const MAX_PLAYERS_PER_SESSION = 2;
 const MAX_SESSION_CHAT_MESSAGES = 100;
 
-/* A reserved lobby whose human seat never fills is abandoned after this long. The
- * bot's seat is "connected" from the moment it is claimed, so without this rule the
- * empty-lobby cleanup can never reap it and every abandoned play pins one of the
- * bot's concurrent-game slots forever. */
-export const RESERVED_LOBBY_ABANDONED_AFTER_MS = 60_000;
+/* A lobby where only bots sit is abandoned after this long. A bot's seat is
+ * "connected" from the moment it is claimed, so without this rule the empty-lobby
+ * cleanup can never reap it and every lobby nobody came for pins one of the bot's
+ * concurrent-game slots forever. */
+export const BOT_ONLY_LOBBY_ABANDONED_AFTER_MS = 60_000;
 
 @injectable()
 export class SessionManager {
@@ -1204,8 +1204,8 @@ export class SessionManager {
 
         switch (session.state) {
             case `lobby`: {
-                if (isAbandonedBotReservedLobby(session, Date.now())) {
-                    this.deleteSession(session, `reserved-abandoned`);
+                if (isAbandonedBotOnlyLobby(session, Date.now())) {
+                    this.deleteSession(session, `bot-only-abandoned`);
                     break;
                 }
 
@@ -2248,14 +2248,13 @@ export class SessionManager {
 }
 
 /**
- * A bot-only reserved lobby nobody human ever came for: the bot's seat counts as
- * connected, so only this reaper can retire it. Tournaments never match (no bot
- * seats them in this stack), and a lobby holding a human seat never matches.
+ * A bot-only lobby nobody human ever came for, reserved or open: the bot's seat
+ * counts as connected, so only this reaper can retire it. Tournaments never match
+ * (no bot seats them in this stack), and a lobby holding a human seat never matches.
  */
-function isAbandonedBotReservedLobby(session: ServerGameSession, now: number): boolean {
+function isAbandonedBotOnlyLobby(session: ServerGameSession, now: number): boolean {
     return session.tournament === null
-        && session.reservedPlayerProfileIds.length > 0
         && session.players.length > 0
         && session.players.every((player) => player.isBot)
-        && now - session.createdAt >= RESERVED_LOBBY_ABANDONED_AFTER_MS;
+        && now - session.createdAt >= BOT_ONLY_LOBBY_ABANDONED_AFTER_MS;
 }
