@@ -1005,7 +1005,7 @@
   "custom": "自定义",
   "thinkTimePerTurn": "每回合思考时间",
   "theLongerItThinksTheDeeperItSearches": "每回合思考越久，搜索越深。与它对弈不计入评分。",
-  "playAgainstABot": "与机器人对弈",
+  "playVsBot": "人机对弈",
   "beginner": "入门",
   "easy": "简单",
   "medium": "中等",

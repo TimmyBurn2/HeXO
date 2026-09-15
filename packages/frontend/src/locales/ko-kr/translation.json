@@ -1005,7 +1005,7 @@
   "custom": "직접 설정",
   "thinkTimePerTurn": "턴당 생각 시간",
   "theLongerItThinksTheDeeperItSearches": "턴당 생각 시간이 길수록 더 깊이 탐색합니다. 봇과의 게임은 비등급전입니다.",
-  "playAgainstABot": "봇과 대결하기",
+  "playVsBot": "봇과 대결",
   "beginner": "입문",
   "easy": "쉬움",
   "medium": "보통",

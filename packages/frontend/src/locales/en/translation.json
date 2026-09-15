@@ -1005,7 +1005,7 @@
   "custom": "Custom",
   "thinkTimePerTurn": "Think time per turn",
   "theLongerItThinksTheDeeperItSearches": "The longer it thinks per turn, the deeper it searches. Games against it are unrated.",
-  "playAgainstABot": "Play against a bot",
+  "playVsBot": "Play vs Bot",
   "beginner": "Beginner",
   "easy": "Easy",
   "medium": "Medium",
