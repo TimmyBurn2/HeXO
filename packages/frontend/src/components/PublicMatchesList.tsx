@@ -348,7 +348,7 @@ export default function PublicMatchesList({
                                     onClick={onPlayBot}
                                     disabled={shutdown !== null}
                                 >
-                                    <BotIcon className={"mr-2"} /> {t('playAgainstABot', 'Play against a bot')}
+                                    <BotIcon className={"mr-2"} /> {t('playVsBot', 'Play vs Bot')}
                                 </Button>
                             )}
                         </div>

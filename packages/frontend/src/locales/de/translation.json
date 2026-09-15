@@ -1005,7 +1005,7 @@
   "custom": "Eigene",
   "thinkTimePerTurn": "Bedenkzeit pro Zug",
   "theLongerItThinksTheDeeperItSearches": "Je länger er pro Zug nachdenkt, desto tiefer sucht er. Spiele gegen ihn sind unbewertet.",
-  "playAgainstABot": "Gegen einen Bot spielen",
+  "playVsBot": "Bot spielen",
   "beginner": "Anfänger",
   "easy": "Leicht",
   "medium": "Mittel",
