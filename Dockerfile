@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM node:22-alpine AS build
+FROM node:22.22-alpine AS build
 
 ARG GITHUB_SHA
 ARG VITE_OPENREPLAY_PROJECT_KEY=3cwetvApbpUmvIOlsktv
@@ -34,7 +34,7 @@ COPY . .
 RUN pnpm generate:changelog
 RUN pnpm build
 
-FROM node:22-alpine AS runtime
+FROM node:22.22-alpine AS runtime
 
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
@@ -53,6 +53,11 @@ COPY --from=build /app/packages/frontend/dist/ ./packages/frontend/dist/
 
 RUN cd packages/backend && pnpm install --frozen-lockfile
 
+# Deployment (deploy-Branch): non-root + beschreibbares App-Logverzeichnis
+RUN mkdir -p /app/logs && chown node:node /app/logs
+
 EXPOSE 3001
+
+USER node
 
 CMD ["node", "packages/backend/dist/server.cjs"]
