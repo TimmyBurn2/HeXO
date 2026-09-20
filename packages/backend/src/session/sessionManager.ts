@@ -5,6 +5,7 @@ import type {
     BoardCell,
     CreateSessionResponse,
     FinishedGameTournamentInfo,
+    GameMove,
     GameState,
     HexCoordinate,
     LobbyInfo,
@@ -65,6 +66,12 @@ import {
     toSessionPlayer,
     toSessionSpectator,
 } from "./types";
+
+type AppliedStone = {
+    placed: BoardCell;
+    move: GameMove;
+    continuedPlay: boolean;
+};
 
 export class SessionError extends Error {
     constructor(message: string) {
@@ -641,9 +648,11 @@ export class SessionManager {
         playerId: string,
         cell: HexCoordinate,
     ) {
-        await session.lock.runExclusive(
-            async () => await this.placeCellLocked(session, playerId, cell),
-        );
+        await session.lock.runExclusive(async () => {
+            const stone = this.applyStoneLocked(session, playerId, cell, Date.now());
+            void this.gameHistoryRepository.appendMoves(session.gameId, [stone.move]);
+            await this.completeStoneLocked(session, stone);
+        });
     }
 
     /**
@@ -699,22 +708,69 @@ export class SessionManager {
                 }
             }
 
-            for (const cell of cells) {
-                if (session.state !== `in-game`) {
-                    break;
+            const stones: AppliedStone[] = [];
+            try {
+                for (const cell of cells) {
+                    stones.push(
+                        this.applyStoneLocked(session, playerId, cell, timestamp),
+                    );
+                    if (session.gameState.winner) {
+                        /* A win on an earlier stone ends the turn; the rest is not played. */
+                        break;
+                    }
                 }
-
-                await this.placeCellLocked(session, playerId, cell, timestamp);
+            } catch (error: unknown) {
+                /* Unreachable while the dry run and the commit path stay the same rule
+                 * engine; if they ever diverge, the stones that did land stay on the
+                 * board — record and announce them instead of stranding a half turn. */
+                await this.recordTurnLocked(session, stones);
+                throw error;
             }
+
+            await this.recordTurnLocked(session, stones);
         });
     }
 
-    private async placeCellLocked(
+    /**
+     * One history write per turn — per-stone fire-and-forget appends let the stones of
+     * a compound turn land in the history out of order — then the turn's per-stone
+     * announcements, each carrying the turn's final state. The append is fired before
+     * any finish work, so a winning move is in the write queue before the game is
+     * durably finalized.
+     */
+    private async recordTurnLocked(
+        session: ServerGameSession,
+        stones: readonly AppliedStone[],
+    ): Promise<void> {
+        assert(session.lock.isLocked());
+
+        if (stones.length > 0) {
+            void this.gameHistoryRepository.appendMoves(
+                session.gameId,
+                stones.map((stone) => stone.move),
+            );
+        }
+
+        for (const stone of stones) {
+            if (session.state !== `in-game`) {
+                break;
+            }
+
+            await this.completeStoneLocked(session, stone);
+        }
+    }
+
+    /**
+     * Applies one stone and reports it, `continuedPlay` telling the completer whether
+     * the game was still going once this stone landed. The caller owns the history
+     * strategy (`recordTurnLocked`).
+     */
+    private applyStoneLocked(
         session: ServerGameSession,
         playerId: string,
         cell: HexCoordinate,
-        now?: number,
-    ) {
+        timestamp: number,
+    ): AppliedStone {
         assert(session.lock.isLocked());
 
         if (session.state !== `in-game`) {
@@ -728,7 +784,6 @@ export class SessionManager {
         }
 
         let moveResult;
-        const timestamp = now ?? Date.now();
         const turnExpiresAt = session.currentTurnExpiresAt;
         try {
             this.timeControl.ensureTurnHasTimeRemaining(session, timestamp);
@@ -755,28 +810,40 @@ export class SessionManager {
             turnExpiresAt,
         });
 
-        void this.gameHistoryRepository.appendMove(session.gameId, {
-            moveNumber: session.gameState.cells.length + 1,
-            playerId,
-            x: cell.x,
-            y: cell.y,
-            timestamp,
-        });
+        return {
+            placed: session.gameState.cells.at(-1)!,
+            continuedPlay: session.gameState.winner === null,
+            move: {
+                /* The stone's 1-indexed position on the board — the origin is move 1. */
+                moveNumber: session.gameState.cells.length,
+                playerId,
+                x: cell.x,
+                y: cell.y,
+                timestamp,
+            },
+        };
+    }
 
-        if (session.gameState.winner) {
-            /* emit full state just to ensure everyone sees the same */
+    private async completeStoneLocked(
+        session: ServerGameSession,
+        stone: AppliedStone,
+    ): Promise<void> {
+        assert(session.lock.isLocked());
+
+        if (!stone.continuedPlay) {
+            /* This stone ended the game; emit full state so everyone sees the same. */
             this.emitGameState(session);
 
             await this.finishSessionLocked(
                 session,
                 `six-in-a-row`,
-                session.gameState.winner.playerId,
+                session.gameState.winner!.playerId,
             );
             return;
         }
 
         this.timeControl.syncTurnTimeout(session, this.handleTurnExpired);
-        this.emitCellPlacement(session, session.gameState.cells.at(-1)!);
+        this.emitCellPlacement(session, stone.placed);
     }
 
     sendChatMessage(
