@@ -58,6 +58,8 @@ export type CreateChallengeOptions = {
     firstPlayer: BotChallengeFirstPlayer;
     /** Required when the target is server-driven: its thinking time per move. */
     thinkMs?: number;
+    /** Server-placed opening turns; absent means none. */
+    opening?: { randomTurns: number };
 };
 
 const SWEEP_INTERVAL_MS = 5_000;
@@ -356,6 +358,7 @@ export class ChallengeService {
             },
             reservedPlayerProfileIds: [challenger.id, target.id],
             pendingChallengeId: challengeId,
+            openingRandomTurns: options.opening?.randomTurns ?? 0,
         });
 
         const session = this.sessionManager.requireSession(response.sessionId);

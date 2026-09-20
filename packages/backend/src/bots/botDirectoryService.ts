@@ -102,6 +102,7 @@ export class BotDirectoryService {
                 client,
                 lobbyOptions: { ...lobbyOptions, rated: false, firstPlayer: `random` },
                 reservedPlayerProfileIds: [],
+                openingRandomTurns: opponent.opening?.randomTurns ?? 0,
             });
 
             const session = this.sessionManager.requireSession(response.sessionId);

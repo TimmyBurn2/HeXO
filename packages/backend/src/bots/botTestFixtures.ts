@@ -57,6 +57,8 @@ export type SeedOptions = {
     botMovesFirst?: boolean;
     sessionId?: string;
     timeControl?: ServerGameSession[`gameOptions`][`timeControl`];
+    /** Server-placed opening turns the seat manager lays after the first turn. */
+    openingRandomTurns?: number;
 };
 
 /** One in-game session, human and bot seated and connected, the clock read but never fired. */
@@ -69,6 +71,7 @@ export function seedGame(sessionManager: SessionManager, options: SeedOptions = 
         firstPlayer: `host`,
     });
 
+    session.openingRandomTurns = options.openingRandomTurns ?? 0;
     session.players.push({
         id: HUMAN_SEAT,
         deviceId: `device-human`,

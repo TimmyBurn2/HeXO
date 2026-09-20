@@ -291,6 +291,7 @@ export class SessionManager {
         const session = createGameSession(sessionId, params.lobbyOptions, {
             reservedPlayerProfileIds: params.reservedPlayerProfileIds,
             pendingChallengeId: params.pendingChallengeId,
+            openingRandomTurns: params.openingRandomTurns,
             tournament: params.tournament ?? null,
         });
 
@@ -1014,6 +1015,9 @@ export class SessionManager {
                 ...originalSession.gameOptions,
                 firstPlayer: rematchFirstPlayer,
             });
+            /* An opening is a property of the pairing, not of one game: a rematch
+             * gets a fresh random one at the same count. */
+            rematchSession.openingRandomTurns = originalSession.openingRandomTurns;
 
             const socketMapping: Record<string, string> = {};
             await rematchSession.lock.runExclusive(async () => {

@@ -201,6 +201,9 @@ export class BotStreamRegistry implements BotSeatDriver {
             side,
             opponent: this.botPlayerMapper.fromSeat(session.players.find((player) => player.id !== seat.seatId)),
             timeControl: session.gameOptions.timeControl,
+            /* The opening the game carries, so a bot knows the first board it sees
+             * was placed by the server, not by its opponent. */
+            ...(session.openingRandomTurns > 0 ? { opening: { randomTurns: session.openingRandomTurns } } : {}),
             rated: session.isRatedGame,
         });
     }

@@ -1,4 +1,5 @@
-import type { GameState } from '@ih3t/shared';
+import type { GameState, HexCoordinate } from '@ih3t/shared';
+import { getCellKey, isCellWithinPlacementRadius } from '@ih3t/shared';
 import type { Logger } from 'pino';
 import { inject, injectable } from 'tsyringe';
 
@@ -40,6 +41,10 @@ export type BotSeatDriver = {
     onSessionRemoved?(sessionId: string): void;
 };
 
+/** How far an opening stone may sit from the stones already on the board: a tight
+ * cluster, so an opening reads as an opening and not a head start across the board. */
+const OPENING_STONE_RADIUS = 2;
+
 type TrackedSeat = {
     seat: BotSeat;
     driver: BotSeatDriver;
@@ -68,6 +73,9 @@ export class BotSeatManager {
     private readonly driverTypes = new Map<string, BotDriverType>();
     /** Keyed `<sessionId>::<seatId>`. */
     private readonly seats = new Map<string, TrackedSeat>();
+    /** Sessions whose server-placed opening has started; `done` once the handover is
+     * a whole turn again. Keyed by session id. */
+    private readonly openings = new Map<string, `running` | `done`>();
     private readonly finishedWatches = new Map<string, FinishedWatch>();
     private unsubscribe: (() => void) | null = null;
 
@@ -95,6 +103,7 @@ export class BotSeatManager {
         this.unsubscribe?.();
         this.unsubscribe = null;
         this.seats.clear();
+        this.openings.clear();
         for (const sessionId of [...this.finishedWatches.keys()]) {
             this.clearFinishedWatch(sessionId);
         }
@@ -132,6 +141,12 @@ export class BotSeatManager {
     reconcile(sessionId: string): void {
         const session = this.sessionManager.getSession(sessionId);
         if (!session || session.state !== `in-game` || !session.gameId) {
+            return;
+        }
+
+        if (this.maybeStartOpening(session)) {
+            /* The opening owns the board until it is laid: no seat is told anything
+             * about a position that is still being placed. */
             return;
         }
 
@@ -217,7 +232,67 @@ export class BotSeatManager {
             });
     }
 
+    /** The opening starts the moment the first turn is complete — the origin stone
+     * exists and a full turn is owed — whoever placed that origin, bot or human. */
+    private maybeStartOpening(session: ServerGameSession): boolean {
+        if (session.openingRandomTurns <= 0 || this.openings.has(session.id)) {
+            return this.openings.get(session.id) === `running`;
+        }
+
+        const snapshot = this.sessionManager.getSessionSnapshot(session.id);
+        if (!snapshot) {
+            return false;
+        }
+
+        const firstTurnComplete = snapshot.gameState.cells.length === 1
+            && snapshot.gameState.placementsRemaining === 2;
+        if (!firstTurnComplete) {
+            return false;
+        }
+
+        /* Marked synchronously: reconcile runs from inside the session lock, and the
+         * placement's own cell events re-enter reconcile before the stones exist. */
+        this.openings.set(session.id, `running`);
+        void this.placeOpening(session)
+            .catch((error: unknown) => {
+                this.logger.warn({ err: error, event: `bots.opening.failed`, sessionId: session.id }, `Failed to place an opening`);
+            })
+            .finally(() => {
+                /* Whatever stopped the placement, the game goes on from wherever it
+                 * got to: the owed turn is delivered like any other — unless the game
+                 * ended meanwhile. `finish` has already cleared the entry, and a
+                 * rematch (the same session id) deserves a fresh opening, so it is
+                 * never resurrected here. */
+                if (this.openings.get(session.id) === `running`) {
+                    this.openings.set(session.id, `done`);
+                }
+
+                this.reconcile(session.id);
+            });
+        return true;
+    }
+
+    /** Lays the opening turn by turn through the ordinary rules and locks, so the
+     * history, the clocks and every board see the same game. */
+    private async placeOpening(session: ServerGameSession): Promise<void> {
+        for (let turn = 0; turn < session.openingRandomTurns; turn += 1) {
+            const snapshot = this.sessionManager.getSessionSnapshot(session.id);
+            if (!snapshot || snapshot.gameState.winner || session.state !== `in-game`) {
+                return;
+            }
+
+            const { gameState } = snapshot;
+
+            /* A human whose turn this is may still click while their opening stones
+             * are being placed; the lock serializes it, and the loop simply stops on
+             * the first refusal — legal and self-healing. */
+            const cells = randomOpeningTurn(gameState);
+            await this.sessionManager.placeCells(session, gameState.currentTurnPlayerId!, cells);
+        }
+    }
+
     private finish(sessionId: string, reason: string, winningPlayerId: string | null): void {
+        this.openings.delete(sessionId);
         for (const [key, tracked] of this.seats) {
             if (tracked.seat.sessionId !== sessionId) {
                 continue;
@@ -391,4 +466,60 @@ export class BotSeatManager {
 
 function seatKey(sessionId: string, seatId: string): string {
     return `${sessionId}::${seatId}`;
+}
+
+/** Two distinct unoccupied cells within the opening radius, chosen uniformly; the
+ * turn's player is whoever the rules say owes it, alternating with each turn. */
+function randomOpeningTurn(gameState: GameState): [HexCoordinate, HexCoordinate] {
+    const occupied = new Set(gameState.cells.map((cell) => getCellKey(cell.x, cell.y)));
+    const candidates: HexCoordinate[] = [];
+    for (const stone of gameState.cells) {
+        for (let dx = -OPENING_STONE_RADIUS; dx <= OPENING_STONE_RADIUS; dx += 1) {
+            for (let dy = -OPENING_STONE_RADIUS; dy <= OPENING_STONE_RADIUS; dy += 1) {
+                const candidate = { x: stone.x + dx, y: stone.y + dy };
+                if (occupied.has(getCellKey(candidate.x, candidate.y))
+                    || !isCellWithinPlacementRadius(gameState.cells, candidate, OPENING_STONE_RADIUS)) {
+                    continue;
+                }
+
+                candidates.push(candidate);
+                occupied.add(getCellKey(candidate.x, candidate.y));
+            }
+        }
+    }
+
+    if (candidates.length < 2) {
+        /* Unreachable on a real board (the radius-2 ring alone has 18 cells); the
+         * widening keeps the invariant "an opening is always a whole turn". */
+        for (const cell of gameState.cells.flatMap((stone) => neighborsWithin(gameState, stone, 8))) {
+            if (!occupied.has(getCellKey(cell.x, cell.y))) {
+                occupied.add(getCellKey(cell.x, cell.y));
+                candidates.push(cell);
+            }
+        }
+    }
+
+    if (candidates.length < 2) {
+        /* Still nowhere to place: hand the turn back rather than place a non-turn;
+         * the caller stops the opening and the game continues from here. */
+        throw new Error(`no legal cells for an opening turn`);
+    }
+
+    const first = candidates[Math.floor(Math.random() * candidates.length)]!;
+    const second = candidates.filter((cell) => cell !== first)[Math.floor(Math.random() * (candidates.length - 1))]!;
+    return [first, second];
+}
+
+function neighborsWithin(gameState: GameState, stone: HexCoordinate, radius: number): HexCoordinate[] {
+    const cells: HexCoordinate[] = [];
+    for (let dx = -radius; dx <= radius; dx += 1) {
+        for (let dy = -radius; dy <= radius; dy += 1) {
+            const candidate = { x: stone.x + dx, y: stone.y + dy };
+            if (isCellWithinPlacementRadius(gameState.cells, candidate, radius)) {
+                cells.push(candidate);
+            }
+        }
+    }
+
+    return cells;
 }

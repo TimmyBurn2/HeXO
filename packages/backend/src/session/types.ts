@@ -89,6 +89,9 @@ export type ServerGameSession = {
      * the moment the game starts; the reserved-lobby reaper and the concurrent-game
      * count read it, nothing else. */
     pendingChallengeId: string | null;
+    /* Server-placed opening turns (spec 0.4.1) the seat manager lays after the origin
+     * stone; 0 is an ordinary game. Carried to rematches: a series keeps its variety. */
+    openingRandomTurns: number;
     tournament: SessionTournamentInfo | null;
 
     chatNames: Record<SessionChatSenderId, string>;
@@ -113,6 +116,7 @@ export type CreateSessionParams = {
     lobbyOptions: LobbyOptions;
     reservedPlayerProfileIds?: string[];
     pendingChallengeId?: string;
+    openingRandomTurns?: number;
     tournament?: SessionTournamentInfo | null;
 };
 
@@ -254,6 +258,7 @@ export function createGameSession(
     options: {
         reservedPlayerProfileIds?: string[];
         pendingChallengeId?: string;
+        openingRandomTurns?: number;
         tournament?: SessionTournamentInfo | null;
     } = {},
 ): ServerGameSession {
@@ -282,6 +287,7 @@ export function createGameSession(
             ...(options.reservedPlayerProfileIds ?? []),
         ],
         pendingChallengeId: options.pendingChallengeId ?? null,
+        openingRandomTurns: options.openingRandomTurns ?? 0,
         tournament: options.tournament ? { ...options.tournament } : null,
         gameId: ``,
         gameState: createEmptyGameState(),

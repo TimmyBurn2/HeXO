@@ -353,6 +353,16 @@ test(`a declared window gates the challenge clock on each side of it`, async () 
     }
 });
 
+
+test(`an opening rides the challenge's session as whole turns`, async () => {
+    const fixture = createFixture();
+
+    const view = await challenge(fixture, { opening: { randomTurns: 2 } });
+
+    const entry = entryOf(fixture, view.challengeId);
+    assert.equal(entry.session.openingRandomTurns, 2);
+});
+
 test(`turnMs null declines turn clocks, an undeclared bot takes anything`, async () => {
     const declining = createFixture({
         declarations: { [TARGET_ID]: { accepts: { turnMs: null, match: true, unlimited: true } } },

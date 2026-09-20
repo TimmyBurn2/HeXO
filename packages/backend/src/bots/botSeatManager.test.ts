@@ -253,3 +253,54 @@ withManager(`a seat without the hook is treated as declining`, async ({ manager,
 
     assert.equal(botConnection(session), `disconnected`);
 });
+
+withManager(`an opening is laid as whole turns within radius 2, then the turn is requested`, async ({ manager, driver, sessionManager }) => {
+    const session = seedGame(sessionManager, { openingRandomTurns: 2 });
+    manager.reconcile(session.id);
+    await sessionManager.placeCell(session, HUMAN_SEAT, { x: 0, y: 0 });
+    await settle();
+    await settle();
+
+    /* The origin plus exactly two full turns: the count is exact, the occupants
+     * alternate in turn order, and every opening stone sits within radius 2 of a
+     * stone that was already there (the placement radius would allow 8). */
+    const cells = session.gameState.cells;
+    assert.equal(cells.length, 5, `origin + 2 * 2 stones, no more and no fewer`);
+    assert.deepEqual(cells.map((cell) => cell.occupiedBy), [HUMAN_SEAT, BOT_SEAT, BOT_SEAT, HUMAN_SEAT, HUMAN_SEAT]);
+    for (const stone of cells.slice(1)) {
+        const distance = Math.min(...cells.filter((earlier) => earlier !== stone)
+            .map((earlier) => (Math.abs(earlier.x - stone.x) + Math.abs(earlier.y - stone.y) + Math.abs(earlier.x + earlier.y - stone.x - stone.y)) / 2));
+        assert.ok(distance <= 2, `every opening stone is within radius 2, found ${distance}`);
+    }
+
+    assert.equal(session.gameState.currentTurnPlayerId, BOT_SEAT, `the handover is a whole turn again`);
+    assert.equal(session.gameState.placementsRemaining, 2);
+    assert.deepEqual(driver.hooks(), [`start`, `turn`], `one turn request, and only after the opening`);
+    assert.equal(driver.calls.at(-1)?.cells, 5);
+});
+
+withManager(`an opening follows a bot-placed origin just the same`, async ({ manager, driver, sessionManager }) => {
+    const session = seedGame(sessionManager, { botMovesFirst: true, openingRandomTurns: 1 });
+    manager.reconcile(session.id);
+    await settle();
+    await settle();
+
+    /* The manager placed the origin for the bot, then one turn for the human, so
+     * the bot is owed the handover. */
+    assert.equal(session.gameState.cells.length, 3);
+    assert.deepEqual(session.gameState.cells.map((cell) => cell.occupiedBy), [BOT_SEAT, HUMAN_SEAT, HUMAN_SEAT]);
+    assert.equal(session.gameState.currentTurnPlayerId, BOT_SEAT);
+    assert.deepEqual(driver.hooks(), [`start`, `turn`]);
+    assert.equal(driver.calls.at(-1)?.cells, 3);
+});
+
+withManager(`a game without an opening asks for its turn the moment the origin exists`, async ({ manager, driver, sessionManager }) => {
+    const session = seedGame(sessionManager, { openingRandomTurns: 0 });
+    manager.reconcile(session.id);
+    await sessionManager.placeCell(session, HUMAN_SEAT, { x: 0, y: 0 });
+    await settle();
+
+    assert.equal(session.gameState.cells.length, 1, `k = 0 places nothing`);
+    assert.deepEqual(driver.hooks(), [`start`, `turn`]);
+    assert.equal(driver.calls.at(-1)?.cells, 1);
+});

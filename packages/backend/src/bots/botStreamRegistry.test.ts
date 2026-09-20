@@ -95,6 +95,7 @@ type SeedOptions = {
     botMovesFirst?: boolean;
     opponentIsGuest?: boolean;
     startInLobby?: boolean;
+    openingRandomTurns?: number;
 };
 
 type Fixture = {
@@ -132,6 +133,7 @@ function seedSession(sessionManager: SessionManager, options: SeedOptions): Serv
         firstPlayer: `host`,
     });
 
+    session.openingRandomTurns = options.openingRandomTurns ?? 0;
     session.players.push({
         id: HUMAN_SEAT,
         deviceId: `device-human`,
@@ -239,6 +241,24 @@ botTest(`opening a stream sets the ndjson headers and replays the running game`,
         rated: false,
     });
     assert.equal(registry.isOnline(BOT_PROFILE_ID), true);
+});
+
+botTest(`a game start carries the opening it was created with`, async ({ registry, connection }) => {
+    registry.open(BOT_PROFILE, connection, false);
+    await settle();
+
+    const start = connection.events()[0];
+    assert.equal(start?.type, `gameStart`);
+    assert.deepEqual(start?.type === `gameStart` ? start.opening : `no opening key`, { randomTurns: 2 });
+}, { openingRandomTurns: 2 });
+
+botTest(`a game start without an opening carries no opening key`, async ({ registry, connection }) => {
+    registry.open(BOT_PROFILE, connection, false);
+    await settle();
+
+    const start = connection.events()[0];
+    assert.equal(start?.type, `gameStart`);
+    assert.equal(`opening` in start, false);
 });
 
 botTest(`a guest opponent has no rating and no profile id`, async ({ registry, connection }) => {
