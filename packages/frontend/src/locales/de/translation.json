@@ -1038,5 +1038,8 @@
   "cancelChallenge": "Herausforderung zurückziehen",
   "watchGame": "Ansehen",
   "failedToChallenge": "Die Herausforderung konnte nicht erstellt werden.",
-  "failedToCancelChallenge": "Die Herausforderung konnte nicht zurückgezogen werden."
+  "failedToCancelChallenge": "Die Herausforderung konnte nicht zurückgezogen werden.",
+  "allGames": "Alle",
+  "vsHumans": "gegen Menschen",
+  "vsBots": "gegen Bots"
 }

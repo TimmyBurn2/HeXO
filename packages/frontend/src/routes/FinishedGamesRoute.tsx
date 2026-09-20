@@ -19,6 +19,7 @@ function FinishedGamesRoute() {
         archiveRouteState?.archiveBaseTimestamp ?? Date.now(),
         archiveRouteState?.archiveView ?? `all`,
         archiveRouteState?.ratedFilter ?? `all`,
+        archiveRouteState?.vsFilter ?? `all`,
         { enabled: Boolean(archiveRouteState) && (!isOwnArchive || Boolean(accountQuery.data?.user)) },
     );
 
@@ -75,16 +76,22 @@ function FinishedGamesRoute() {
                         archiveRouteState.archiveBaseTimestamp,
                         archiveRouteState.archiveView,
                         archiveRouteState.ratedFilter,
+                        archiveRouteState.vsFilter,
                     ),
                     { replace: true },
                 )}
                 onRefresh={() => void navigate(
-                    buildFinishedGamesPath(1, Date.now(), archiveRouteState.archiveView, archiveRouteState.ratedFilter),
+                    buildFinishedGamesPath(1, Date.now(), archiveRouteState.archiveView, archiveRouteState.ratedFilter, archiveRouteState.vsFilter),
                     { replace: true },
                 )}
                 ratedFilter={archiveRouteState.ratedFilter}
                 onChangeRatedFilter={(ratedFilter) => void navigate(
-                    buildFinishedGamesPath(1, Date.now(), archiveRouteState.archiveView, ratedFilter),
+                    buildFinishedGamesPath(1, Date.now(), archiveRouteState.archiveView, ratedFilter, archiveRouteState.vsFilter),
+                    { replace: true },
+                )}
+                vsFilter={archiveRouteState.vsFilter}
+                onChangeVsFilter={(vsFilter) => void navigate(
+                    buildFinishedGamesPath(1, Date.now(), archiveRouteState.archiveView, archiveRouteState.ratedFilter, vsFilter),
                     { replace: true },
                 )}
             />

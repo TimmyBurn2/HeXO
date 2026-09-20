@@ -3,6 +3,7 @@ import type { AdminTimelineRange } from './sharedTypes';
 export const FINISHED_GAMES_PAGE_SIZE = 20;
 export type FinishedGamesArchiveView = `all` | `mine`;
 export type FinishedGamesRatedFilter = `all` | `rated` | `unrated`;
+export type FinishedGamesVsFilter = `all` | `bots` | `humans`;
 
 export const queryKeys = {
     account: [`account`] as const,
@@ -40,12 +41,13 @@ export const queryKeys = {
     finishedGamesPage: (
         view: FinishedGamesArchiveView,
         ratedFilter: FinishedGamesRatedFilter,
+        vsFilter: FinishedGamesVsFilter,
         page: number,
         pageSize: number,
         baseTimestamp: number,
     ) =>
         [
-            `finished-games`, view, ratedFilter, page, pageSize, baseTimestamp,
+            `finished-games`, view, ratedFilter, vsFilter, page, pageSize, baseTimestamp,
         ] as const,
     finishedGame: (gameId: string | null) => [`finished-games`, gameId ?? `empty`] as const,
 

@@ -1,10 +1,11 @@
 import type { FinishedGamesPage } from '@ih3t/shared';
 
-import type { FinishedGamesArchiveView, FinishedGamesRatedFilter } from '../query/queryDefinitions';
+import type { FinishedGamesArchiveView, FinishedGamesRatedFilter, FinishedGamesVsFilter } from '../query/queryDefinitions';
 import FinishedGameCard from './FinishedGameCard';
 import PageCorpus from './PageCorpus';
 import PageNavigation from './PageNavigation';
 import RatedFilterTabs from './RatedFilterTabs';
+import VsFilterTabs from './VsFilterTabs';
 import { useTranslation } from 'react-i18next'
 
 type FinishedGamesScreenProps = {
@@ -19,6 +20,8 @@ type FinishedGamesScreenProps = {
     onRefresh: () => void
     ratedFilter: FinishedGamesRatedFilter
     onChangeRatedFilter: (ratedFilter: FinishedGamesRatedFilter) => void
+    vsFilter: FinishedGamesVsFilter
+    onChangeVsFilter: (vsFilter: FinishedGamesVsFilter) => void
 };
 
 function FinishedGamesScreen({
@@ -32,6 +35,8 @@ function FinishedGamesScreen({
     onChangePage,
     ratedFilter,
     onChangeRatedFilter,
+    vsFilter,
+    onChangeVsFilter,
 }: Readonly<FinishedGamesScreenProps>) {
     const { t } = useTranslation()
     const isOwnArchive = archiveView === `mine`;
@@ -77,10 +82,16 @@ function FinishedGamesScreen({
                     ? `col-span-2 lg:col-span-2 lg:row-start-2`
                     : `col-span-2 lg:col-span-1 lg:ml-auto`}
                 >
-                    <RatedFilterTabs
-                        value={ratedFilter}
-                        onChange={onChangeRatedFilter}
-                    />
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        <RatedFilterTabs
+                            value={ratedFilter}
+                            onChange={onChangeRatedFilter}
+                        />
+                        <VsFilterTabs
+                            value={vsFilter}
+                            onChange={onChangeVsFilter}
+                        />
+                    </div>
                 </div>
 
                 {showSignInHint && (

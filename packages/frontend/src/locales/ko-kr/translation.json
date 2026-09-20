@@ -1038,5 +1038,8 @@
   "cancelChallenge": "도전 취소",
   "watchGame": "관전",
   "failedToChallenge": "도전을 만들 수 없습니다.",
-  "failedToCancelChallenge": "도전을 취소할 수 없습니다."
+  "failedToCancelChallenge": "도전을 취소할 수 없습니다.",
+  "allGames": "전체",
+  "vsHumans": "사람 상대",
+  "vsBots": "봇 상대"
 }

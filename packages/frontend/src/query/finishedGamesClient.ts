@@ -7,6 +7,7 @@ import {
     FINISHED_GAMES_PAGE_SIZE,
     type FinishedGamesArchiveView,
     type FinishedGamesRatedFilter,
+    type FinishedGamesVsFilter,
     queryKeys,
 } from './queryDefinitions';
 
@@ -17,6 +18,7 @@ async function fetchFinishedGames(
     baseTimestamp: number,
     view: FinishedGamesArchiveView,
     ratedFilter: FinishedGamesRatedFilter,
+    vsFilter: FinishedGamesVsFilter,
 ) {
     const params = new URLSearchParams({
         page: String(page),
@@ -28,6 +30,9 @@ async function fetchFinishedGames(
     }
     if (ratedFilter !== `all`) {
         params.set(`rated`, ratedFilter);
+    }
+    if (vsFilter !== `all`) {
+        params.set(`vs`, vsFilter);
     }
 
     return await fetchJson<FinishedGamesPage>(`/api/finished-games?${params.toString()}`);
@@ -50,11 +55,12 @@ export function useQueryFinishedGames(
     baseTimestamp: number,
     view: FinishedGamesArchiveView,
     ratedFilter: FinishedGamesRatedFilter,
+    vsFilter: FinishedGamesVsFilter = `all`,
     options?: { enabled?: boolean },
 ) {
     return useQuery({
-        queryKey: queryKeys.finishedGamesPage(view, ratedFilter, page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp),
-        queryFn: () => fetchFinishedGames(page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp, view, ratedFilter),
+        queryKey: queryKeys.finishedGamesPage(view, ratedFilter, vsFilter, page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp),
+        queryFn: () => fetchFinishedGames(page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp, view, ratedFilter, vsFilter),
         placeholderData: keepPreviousData,
         enabled: options?.enabled,
         staleTime: 60 * 60 * 1000,

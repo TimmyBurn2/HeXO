@@ -1038,5 +1038,8 @@
   "cancelChallenge": "取消挑战",
   "watchGame": "观战",
   "failedToChallenge": "无法创建挑战。",
-  "failedToCancelChallenge": "无法取消挑战。"
+  "failedToCancelChallenge": "无法取消挑战。",
+  "allGames": "全部",
+  "vsHumans": "对人类",
+  "vsBots": "对机器人"
 }

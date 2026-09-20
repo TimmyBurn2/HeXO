@@ -1,6 +1,7 @@
 import {
     FINISHED_GAMES_PAGE_SIZE,
     type FinishedGamesArchiveView,
+    type FinishedGamesVsFilter,
     queryKeys,
 } from '@ih3t/shared';
 
@@ -12,4 +13,5 @@ export {
 };
 
 export type FinishedGamesRatedFilter = RatedFilter;
+export type { FinishedGamesVsFilter };
 export type { FinishedGamesArchiveView };

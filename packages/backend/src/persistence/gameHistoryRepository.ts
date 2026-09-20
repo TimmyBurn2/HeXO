@@ -39,6 +39,8 @@ type ListFinishedGamesOptions = {
     baseTimestamp?: number;
     playerProfileId?: string;
     ratedFilter?: `all` | `rated` | `unrated`;
+    /** `bots`: any seat is a bot; `humans`: no seat is. */
+    vsFilter?: `all` | `bots` | `humans`;
 };
 
 export type GameHistoryAdminWindowStats = {
@@ -377,6 +379,7 @@ export class GameHistoryRepository {
             baseTimestamp,
             options.playerProfileId,
             options.ratedFilter ?? `all`,
+            options.vsFilter ?? `all`,
         );
         const aggregationResult = await collection
             .aggregate<{
@@ -1196,11 +1199,21 @@ export class GameHistoryRepository {
         baseTimestamp: number,
         playerProfileId?: string,
         ratedFilter: "all" | "rated" | "unrated" = `all`,
+        vsFilter: "all" | "bots" | "humans" = `all`,
     ) {
         const ratedMatch =
             ratedFilter === `all`
                 ? {}
                 : { "gameOptions.rated": ratedFilter === `rated` };
+
+        /* `$ne` over an array field matches only when no element equals: exactly the
+         * "no bot seat" reading the humans filter wants. */
+        const vsMatch =
+            vsFilter === `bots`
+                ? { "players.isBot": true }
+                : vsFilter === `humans`
+                    ? { "players.isBot": { $ne: true } }
+                    : {};
 
         return {
             finishedAt: {
@@ -1211,6 +1224,7 @@ export class GameHistoryRepository {
                 ? { "players.profileId": playerProfileId }
                 : {}),
             ...ratedMatch,
+            ...vsMatch,
         };
     }
 

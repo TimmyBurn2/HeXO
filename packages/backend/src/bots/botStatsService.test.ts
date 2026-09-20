@@ -185,6 +185,37 @@ test(`a bot without games reads as zeroes, an unknown bot is a 404`, async () =>
     });
 });
 
+
+test(`the history answers the vs filter over any seat`, async () => {
+    await withService(async ({ history, games, botProfileId }) => {
+        const botSeat = botPlayer(botProfileId);
+        await games.insertMany([
+            finishedGame({
+                id: `human-game`,
+                players: [player(`seat-a`, `Timmy`, false, HUMAN_ID), player(`seat-b`, `Mantis`, false, HUMAN_ID)],
+                winner: `seat-a`,
+                reason: `six-in-a-row`,
+                finishedAt: 1_000,
+            }),
+            finishedGame({
+                id: `bot-game`,
+                players: [botSeat, player(`seat-human`, `Timmy`, false, HUMAN_ID)],
+                winner: `seat-bot`,
+                reason: `six-in-a-row`,
+                finishedAt: 2_000,
+            }),
+        ]);
+
+        const bots = await history.listFinishedGames({ vsFilter: `bots` });
+        const humans = await history.listFinishedGames({ vsFilter: `humans` });
+        const all = await history.listFinishedGames({});
+
+        assert.deepEqual(bots.games.map((game) => game.id), [`bot-game`]);
+        assert.deepEqual(humans.games.map((game) => game.id), [`human-game`]);
+        assert.equal(all.games.length, 2);
+    });
+});
+
 test(`the cache serves reads and a rebuild picks up new games`, async () => {
     await withService(async ({ service, games, botProfileId }) => {
         const botSeat = botPlayer(botProfileId);

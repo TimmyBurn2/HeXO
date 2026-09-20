@@ -46,6 +46,10 @@ function sortLobbySessions(sessions: LobbyInfo[]) {
     });
 }
 
+function parseVsFilter(value: string | null): `all` | `bots` | `humans` {
+    return value === `bots` || value === `humans` ? value : `all`;
+}
+
 function parsePositiveInteger(value: string | null): number | null {
     if (!value) {
         return null;
@@ -203,15 +207,17 @@ export class FrontendSsrRenderer {
                 ? ratedFilterParam
                 : `all`;
             const page = parsePositiveInteger(requestUrl.searchParams.get(`page`)) ?? 1;
+            const vsFilter = parseVsFilter(requestUrl.searchParams.get(`vs`));
             const baseTimestamp = parsePositiveInteger(requestUrl.searchParams.get(`at`));
 
             if (baseTimestamp !== null) {
                 try {
                     queryClient.setQueryData(
-                        queryKeys.finishedGamesPage(archiveView, ratedFilter, page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp),
+                        queryKeys.finishedGamesPage(archiveView, ratedFilter, vsFilter, page, FINISHED_GAMES_PAGE_SIZE, baseTimestamp),
                         await this.dependencies.apiQueryService.getFinishedGames(req, {
                             view: archiveView,
                             ratedFilter,
+                            vsFilter,
                             page,
                             pageSize: FINISHED_GAMES_PAGE_SIZE,
                             baseTimestamp,

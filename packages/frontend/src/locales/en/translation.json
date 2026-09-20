@@ -1038,5 +1038,8 @@
   "cancelChallenge": "Cancel Challenge",
   "watchGame": "Watch",
   "failedToChallenge": "The challenge could not be created.",
-  "failedToCancelChallenge": "The challenge could not be canceled."
+  "failedToCancelChallenge": "The challenge could not be canceled.",
+  "allGames": "All",
+  "vsHumans": "vs Humans",
+  "vsBots": "vs Bots"
 }
