@@ -12,6 +12,78 @@ import {
 import { formatCalendarDate, useIntlFormatProvider } from '../utils/dateTime';
 import { Button } from './ui/button';
 
+/** One bot's owner controls: rotate the token, delete the bot, see a fresh token
+ * once. Lived in preferences once; the bot's profile and its owner's are its homes. */
+export function useBotAccountMutations(onMutationError: (error: Error) => void) {
+    const [issuedToken, setIssuedToken] = useState<string | null>(null);
+
+    const rotateToken = useMutation({
+        mutationFn: rotateAccountBotToken,
+        onSuccess: (result) => {
+            setIssuedToken(result.token);
+        },
+        onError: onMutationError,
+    });
+    const removeBot = useMutation({
+        mutationFn: deleteAccountBot,
+        onSuccess: () => {
+            setIssuedToken(null);
+        },
+        onError: onMutationError,
+    });
+
+    return { rotateToken, removeBot, issuedToken, setIssuedToken };
+}
+
+function TokenReveal({ token }: Readonly<{ token: string }>) {
+    const { t } = useTranslation();
+
+    return (
+        <p
+            className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100"
+            data-openreplay-obscured
+        >
+            {t('botTokenShownOnce', 'Copy this token now, it is not shown again:')}
+            <code className="mt-2 block break-all font-mono text-xs text-white">{token}</code>
+        </p>
+    );
+}
+
+/** The owner-only panel on a bot's own profile: this bot's token and nothing else.
+ * The declaration is the bot's to send; the owner edits nothing behavioural. */
+export function BotTokenPanel({ bot }: Readonly<{ bot: BotAccount }>) {
+    const { t } = useTranslation()
+    const intlFormatProvider = useIntlFormatProvider();
+    const [error, setError] = useState<string | null>(null);
+    const { rotateToken, removeBot, issuedToken } = useBotAccountMutations((mutationError) => setError(mutationError.message));
+    const busy = rotateToken.isPending || removeBot.isPending;
+
+    return (
+        <section className="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                {t('botOwnerPanel', 'Owner Panel')}
+            </h3>
+            <div className="mt-4 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => rotateToken.mutate(bot.id)}>
+                    {t('rotateToken', 'Rotate token')}
+                </Button>
+                <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={() => removeBot.mutate(bot.id)}>
+                    {t('delete', 'Delete')}
+                </Button>
+            </div>
+            {bot.tokenRotatedAt !== null && (
+                <p className="mt-3 text-xs text-slate-400">
+                    {t('botTokenIssued', 'Token issued {{date}}', {
+                        date: formatCalendarDate(intlFormatProvider, bot.tokenRotatedAt),
+                    })}
+                </p>
+            )}
+            {issuedToken ? <TokenReveal token={issuedToken} /> : null}
+            {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
+        </section>
+    );
+}
+
 function BotRow({
     bot,
     busy,
@@ -53,7 +125,6 @@ function BotRow({
 function AccountBotsCard() {
     const { t } = useTranslation()
     const [username, setUsername] = useState(``);
-    const [issuedToken, setIssuedToken] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const queryBots = useQueryAccountBots();
 
@@ -68,22 +139,7 @@ function AccountBotsCard() {
         },
         onError: onMutationError,
     });
-    const rotateToken = useMutation({
-        mutationFn: rotateAccountBotToken,
-        onSuccess: (result) => {
-            setError(null);
-            setIssuedToken(result.token);
-        },
-        onError: onMutationError,
-    });
-    const removeBot = useMutation({
-        mutationFn: deleteAccountBot,
-        onSuccess: () => {
-            setError(null);
-            setIssuedToken(null);
-        },
-        onError: onMutationError,
-    });
+    const { rotateToken, removeBot, issuedToken, setIssuedToken } = useBotAccountMutations(onMutationError);
 
     const accountBots = queryBots.data;
     if (!accountBots) {
@@ -146,15 +202,7 @@ function AccountBotsCard() {
                 </Button>
             </form>
 
-            {issuedToken && (
-                <p
-                    className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100"
-                    data-openreplay-obscured
-                >
-                    {t('botTokenShownOnce', 'Copy this token now, it is not shown again:')}
-                    <code className="mt-2 block break-all font-mono text-xs text-white">{issuedToken}</code>
-                </p>
-            )}
+            {issuedToken ? <TokenReveal token={issuedToken} /> : null}
 
             {error && <p className="mt-4 text-sm text-rose-300">{error}</p>}
         </section>

@@ -1,5 +1,5 @@
 import { Button, buttonVariants } from '@/components/ui/button';
-import type { AccountEloHistory, AccountStatistics, BotAccount, FinishedGamesPage, LobbyInfo, PublicAccountProfile } from '@ih3t/shared';
+import type { AccountProfile, AccountEloHistory, AccountStatistics, BotAccount, BotListing, BotStats, FinishedGamesPage, LobbyInfo, PublicAccountProfile } from '@ih3t/shared';
 import { type ReactNode, useMemo, useState } from 'react';
 import React from 'react';
 import { Link } from 'react-router';
@@ -15,8 +15,11 @@ import {
 } from 'recharts';
 
 import { signInWithDiscord } from '../query/authClient';
+import { joinSession } from '../liveGameClient';
+import { hostGame } from '../query/sessionClient';
 import { buildSessionPath } from '../routes/archiveRouteState';
 import { useSsrCompatibleNow } from '../ssrState';
+import type { TFunction } from 'i18next';
 import BotBadge from './BotBadge';
 import {
     formatCalendarDate,
@@ -33,8 +36,10 @@ import {
     formatWorldRank,
 } from '../utils/profileStats';
 import AccountPicture from './AccountPicture';
+import AccountBotsCard, { BotTokenPanel } from './AccountBotsCard';
 import type { HouseBotListing } from '@ih3t/shared';
 import ChallengeDialog from './ChallengeDialog';
+import CreateLobbyDialog from './CreateLobbyDialog';
 import FinishedGameCard from './FinishedGameCard';
 import PageCorpus from './PageCorpus';
 import { useTranslation } from 'react-i18next'
@@ -64,6 +69,12 @@ type ProfileScreenProps = {
     ownBots?: BotAccount[] | null
     /** The house-bot listing when the profile is one: it is challenged at a picked strength. */
     houseBot?: HouseBotListing | null
+    /** The signed-in player, for the Play dialog's rated options; null as a guest. */
+    viewerAccount?: AccountProfile | null
+    /** The public roster; presence and ownership come off it, and it feeds Play. */
+    botsListing?: BotListing[] | null
+    /** The profile bot's stats, when the profile is a bot. */
+    botStats?: BotStats | null
 };
 
 type PrimaryStatCardProps = {
@@ -487,14 +498,28 @@ function ProfileScreen({
     isPublicView,
     ownBots = null,
     houseBot = null,
+    viewerAccount = null,
+    botsListing = null,
+    botStats = null,
 }: Readonly<ProfileScreenProps>) {
     const { t } = useTranslation()
     const intlFormatProvider = useIntlFormatProvider();
     const now = useSsrCompatibleNow();
     const [isChallenging, setIsChallenging] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
     /* Owners initiate: a Challenge entry only makes sense for a bot someone can send.
      * A house bot answers through its driver, at the strength picked in the dialog. */
     const canChallenge = account?.kind === `bot` && (ownBots?.length ?? 0) > 0;
+
+    const isBotProfile = account?.kind === `bot`;
+    const profileBotListing = isBotProfile && account
+        ? botsListing?.find((listing) => listing.profileId === account.id) ?? null
+        : null;
+    /* Play needs the bot reachable: a house bot always is, a stream bot while online. */
+    const canPlay = isBotProfile && (houseBot !== null || profileBotListing?.online === true);
+    const ownedBots = account ? (botsListing ?? []).filter((listing) => listing.owner === account.id) : [];
+    const isOwnProfile = account !== null && viewerAccount?.id === account?.id;
+    const ownedBotEntry = account ? ownBots?.find((bot) => bot.id === account.id) ?? null : null;
 
     const handleSignIn = async () => {
         try {
@@ -615,14 +640,25 @@ function ProfileScreen({
                                                 <AccountMetaItem label={t('lastSeen', 'Last Seen')} value={lastSeenLabel ?? `Unavailable`} />
                                             </div>
 
-                                            {canChallenge ? (
-                                                <Button
-                                                    onClick={() => setIsChallenging(true)}
-                                                    variant="secondary" size="sm" className="mt-4"
-                                                >
-                                                    {t('challenge', 'Challenge')}
-                                                </Button>
-                                            ) : null}
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                {canPlay ? (
+                                                    <Button
+                                                        onClick={() => setIsPlaying(true)}
+                                                        variant="secondary" size="sm"
+                                                    >
+                                                        {t('play', 'Play')}
+                                                    </Button>
+                                                ) : null}
+
+                                                {canChallenge ? (
+                                                    <Button
+                                                        onClick={() => setIsChallenging(true)}
+                                                        variant="secondary" size="sm"
+                                                    >
+                                                        {t('challenge', 'Challenge')}
+                                                    </Button>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -756,6 +792,27 @@ function ProfileScreen({
                             errorMessage={recentGamesErrorMessage}
                             isPublicView={isPublicView}
                         />
+
+                        {isBotProfile && (botsListing !== null || houseBot !== null) ? (
+                            <BotProfileSection
+                                listing={profileBotListing}
+                                houseBot={houseBot}
+                                stats={botStats}
+                            />
+                        ) : null}
+
+                        {isBotProfile && ownedBotEntry ? (
+                            <BotTokenPanel bot={ownedBotEntry} />
+                        ) : null}
+
+                        {account && ownedBots.length > 0 ? (
+                            <OwnedBotsSection
+                                bots={ownedBots}
+                                isOwner={isOwnProfile}
+                            />
+                        ) : null}
+
+                        {isOwnProfile && account ? <AccountBotsCard /> : null}
                     </div>
                 )}
             </div>
@@ -769,8 +826,196 @@ function ProfileScreen({
                     houseBot={houseBot}
                 />
             ) : null}
+
+            {account && isPlaying ? (
+                <CreateLobbyDialog
+                    isOpen
+                    onClose={() => setIsPlaying(false)}
+                    account={viewerAccount}
+                    houseBots={houseBot ? { bots: [houseBot], available: profileBotListing?.openForChallenges ?? true } : null}
+                    ownBots={ownBots}
+                    onlineBots={botsListing?.filter((listing) => listing.online) ?? null}
+                    initialOpponent={houseBot
+                        ? { kind: `house-bot`, profileId: account.id }
+                        : { kind: `bot`, profileId: account.id }}
+                    onCreateLobby={(request) => {
+                        void hostGame(request).then((sessionId) => {
+                            setIsPlaying(false);
+                            joinSession(sessionId);
+                        }).catch((error: unknown) => {
+                            console.error(`Failed to create a lobby:`, error);
+                            showErrorToast(error instanceof Error ? error.message : `Failed to create the game.`);
+                        });
+                    }}
+                />
+            ) : null}
         </PageCorpus>
     );
 }
 
 export default ProfileScreen;
+
+type BotProfileSectionProps = {
+    listing: BotListing | null
+    houseBot: HouseBotListing | null
+    stats: BotStats | null
+};
+
+/** What a bot is, beyond its name: who drives it, whether it is reachable, what it
+ * declared about itself, and its record. Everything public, for every visitor. */
+function BotProfileSection({ listing, houseBot, stats }: Readonly<BotProfileSectionProps>) {
+    const { t } = useTranslation();
+    const intlFormatProvider = useIntlFormatProvider();
+
+    const driver = houseBot
+        ? t('serverEngine', 'Server engine ({{engine}})', { engine: houseBot.engine })
+        : t('itsOwnProcess', 'Its own process, over the bot API');
+    const presence = listing?.online
+        ? (listing.openForChallenges ? t('onlineOpen', 'Online, taking games') : t('online', 'Online'))
+        : t('offline', 'Offline');
+
+    return (
+        <section className="mt-6 rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.72),rgba(15,23,42,0.5))] p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                {t('botProfile', 'Bot Profile')}
+            </h3>
+
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('drivenBy', 'Driven by')}</dt>
+                    <dd className="mt-1 text-slate-100">{driver}</dd>
+                </div>
+                <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('presence', 'Presence')}</dt>
+                    <dd className="mt-1 text-slate-100">{presence}</dd>
+                </div>
+                {listing?.about ? (
+                    <div className="sm:col-span-2">
+                        <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('about', 'About')}</dt>
+                        <dd className="mt-1 leading-6 text-slate-100">{listing.about}</dd>
+                    </div>
+                ) : null}
+                {listing?.version ? (
+                    <div>
+                        <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('version', 'Version')}</dt>
+                        <dd className="mt-1 text-slate-100">{listing.version}</dd>
+                    </div>
+                ) : null}
+                {listing?.repoUrl ? (
+                    <div>
+                        <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('sourceCode', 'Source')}</dt>
+                        <dd className="mt-1 truncate">
+                            <a className="text-sky-200 underline underline-offset-2" href={listing.repoUrl} target="_blank" rel="noreferrer">{listing.repoUrl}</a>
+                        </dd>
+                    </div>
+                ) : null}
+                {listing?.accepts ? (
+                    <div className="sm:col-span-2">
+                        <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('acceptsClocks', 'Accepts')}</dt>
+                        <dd className="mt-1 text-slate-100">{acceptsLabel(t, listing.accepts)}</dd>
+                    </div>
+                ) : null}
+            </dl>
+
+            {stats ? (
+                <div className="mt-5 border-t border-white/10 pt-4">
+                    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm text-slate-100">
+                        <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{t('record', 'Record')}</span>
+                        <span>{stats.overall.wins}–{stats.overall.losses}–{stats.overall.draws}</span>
+                        <span className="text-slate-400">
+                            {t('botGamesCount', '{{count}} games', { count: stats.overall.games })}
+                        </span>
+                        {stats.medianThinkMs !== null ? (
+                            <span className="text-slate-400">
+                                {t('medianThinkTime', 'median think {{seconds}}s', { seconds: (stats.medianThinkMs / 1000).toFixed(1) })}
+                            </span>
+                        ) : null}
+                        {stats.lastSeenAt !== null ? (
+                            <span className="text-slate-400">
+                                {t('lastSeen', 'Last Seen')} {formatCalendarDate(intlFormatProvider, stats.lastSeenAt)}
+                            </span>
+                        ) : null}
+                    </div>
+
+                    {Object.keys(stats.lossesByReason).length > 0 ? (
+                        <p className="mt-2 text-xs text-slate-400">
+                            {t('lossesByReason', 'Losses by reason: {{reasons}}', {
+                                reasons: Object.entries(stats.lossesByReason)
+                                    .map(([reason, count]) => `${reason} × ${count}`)
+                                    .join(`, `),
+                            })}
+                        </p>
+                    ) : null}
+
+                    {stats.vsBotByOpponent.length > 0 ? (
+                        <div className="mt-3">
+                            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                                {t('vsBotsRecord', 'vs bots')}
+                            </p>
+                            <ul className="mt-2 flex flex-col gap-1 text-sm text-slate-100">
+                                {stats.vsBotByOpponent.map((entry) => (
+                                    <li key={entry.opponent} className="flex items-baseline justify-between gap-4">
+                                        <span className="truncate">{entry.opponent}</span>
+                                        <span className="shrink-0 text-slate-400">
+                                            {entry.record.wins}–{entry.record.losses}–{entry.record.draws}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+        </section>
+    );
+}
+
+function acceptsLabel(t: TFunction, accepts: NonNullable<BotListing[`accepts`]>): string {
+    const parts: string[] = [];
+    if (accepts.turnMs !== null) {
+        parts.push(`${accepts.turnMs[0] / 1000}s–${accepts.turnMs[1] / 1000}s ${t('perTurn', 'per turn')}`);
+    }
+    if (accepts.match) {
+        parts.push(t('matchClocks', 'match clocks'));
+    }
+    if (accepts.unlimited) {
+        parts.push(t('unlimitedClocks', 'unlimited'));
+    }
+
+    return parts.length > 0 ? parts.join(`, `) : t('nothingDeclared', 'Nothing declared');
+}
+
+type OwnedBotsSectionProps = {
+    bots: BotListing[]
+    isOwner: boolean
+};
+
+/** Whose bots these are: public on the owner's profile, controls only for the owner. */
+function OwnedBotsSection({ bots, isOwner }: Readonly<OwnedBotsSectionProps>) {
+    const { t } = useTranslation();
+
+    if (isOwner) {
+        /* The owner gets the management card below instead: one list, with controls. */
+        return null;
+    }
+
+    return (
+        <section className="mt-6 rounded-[1.6rem] border border-white/10 bg-slate-950/45 p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                {t('botsSection', 'Bots')}
+            </h3>
+            <ul className="mt-3 flex flex-col gap-2 text-sm text-slate-100">
+                {bots.map((bot) => (
+                    <li key={bot.profileId} className="flex items-center justify-between gap-3">
+                        <Link className="truncate underline-offset-2 hover:underline" to={`/profile/${bot.profileId}`}>
+                            {bot.displayName}
+                        </Link>
+                        <span className={`shrink-0 text-xs uppercase tracking-[0.16em] ${bot.online ? `text-emerald-200` : `text-slate-500`}`}>
+                            {bot.online ? t('online', 'Online') : t('offline', 'Offline')}
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        </section>
+    );
+}

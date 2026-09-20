@@ -520,3 +520,112 @@ test('a bot profile hides the challenge action while the flag is off', async ({ 
 
   await expect(component.getByRole('button', { name: 'Challenge' })).toHaveCount(0)
 })
+
+const botListing = {
+    profileId: 'bot-1',
+    displayName: 'Strix',
+    elo: 1000,
+    online: true,
+    openForChallenges: true,
+    about: 'Strix, the reference bot',
+    version: '1.0.0',
+    repoUrl: 'https://github.com/TimmyBurn2/Hexo-Bot-Api',
+    accepts: { turnMs: [5000, 600000] as [number, number], match: true, unlimited: false },
+};
+
+const botStats = {
+    botProfileId: 'bot-1',
+    generatedAt: 1,
+    overall: { games: 3, wins: 2, losses: 1, draws: 0 },
+    lossesByReason: { timeout: 1 },
+    vsHumans: { games: 1, wins: 1, losses: 0, draws: 0 },
+    vsBots: { games: 2, wins: 1, losses: 1, draws: 0 },
+    vsBotByOpponent: [
+        { opponent: 'SealBot 0.3s', record: { games: 2, wins: 1, losses: 1, draws: 0 } },
+    ],
+    medianThinkMs: 3200,
+    lastSeenAt: 1_700_000_500_000,
+};
+
+test('a bot profile shows driver, presence, declaration and its record', async ({ mount }) => {
+    const component = await mount(
+        <ProfileScreen
+            account={{ ...account, kind: 'bot' }}
+            statistics={statistics}
+            recentGames={recentGames}
+            liveGame={null}
+            isLoading={false}
+            isStatisticsLoading={false}
+            isRecentGamesLoading={false}
+            errorMessage={null}
+            statisticsErrorMessage={null}
+            recentGamesErrorMessage={null}
+            isPublicView
+            botsListing={[botListing]}
+            botStats={botStats}
+        />
+    )
+
+    await expect(component.getByText('Bot Profile')).toBeVisible()
+    await expect(component.getByText(/Its own process/)).toBeVisible()
+    await expect(component.getByText('Online, taking games')).toBeVisible()
+    await expect(component.getByText('Strix, the reference bot')).toBeVisible()
+    await expect(component.getByText(/5s–600s per turn/)).toBeVisible()
+    /* The record and the de-facto ladder, from history. */
+    await expect(component.getByText('2–1–0')).toBeVisible()
+    await expect(component.getByText('SealBot 0.3s')).toBeVisible()
+    await expect(component.getByText(/median think 3.2s/)).toBeVisible()
+})
+
+test('a bot profile offers Play, and no owner panel for a stranger', async ({ mount, page }) => {
+    await page.route('**/api/house-bots', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ bots: [] }) })
+    })
+
+    const component = await mount(
+        <ProfileScreen
+            account={{ ...account, kind: 'bot' }}
+            statistics={statistics}
+            recentGames={recentGames}
+            liveGame={null}
+            isLoading={false}
+            isStatisticsLoading={false}
+            isRecentGamesLoading={false}
+            errorMessage={null}
+            statisticsErrorMessage={null}
+            recentGamesErrorMessage={null}
+            isPublicView
+            botsListing={[botListing]}
+            ownBots={[]}
+        />
+    )
+
+    await expect(component.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
+    await expect(component.getByText('Owner Panel')).toHaveCount(0)
+})
+
+test('a profile lists the bots its owner owns, publicly', async ({ mount }) => {
+    const component = await mount(
+        <ProfileScreen
+            account={account}
+            statistics={statistics}
+            recentGames={recentGames}
+            liveGame={null}
+            isLoading={false}
+            isStatisticsLoading={false}
+            isRecentGamesLoading={false}
+            errorMessage={null}
+            statisticsErrorMessage={null}
+            recentGamesErrorMessage={null}
+            isPublicView
+            viewerAccount={null}
+            botsListing={[{ ...botListing, owner: 'profile-1' }, { ...botListing, profileId: 'bot-2', displayName: 'Wren', owner: 'someone-else' }]}
+        />
+    )
+
+    const section = component.getByText('Bots', { exact: true })
+    await expect(section).toBeVisible()
+    /* Only the profile's own bots, not everyone's. */
+    await expect(component.getByRole('link', { name: 'Strix' })).toBeVisible()
+    await expect(component.getByRole('link', { name: 'Wren' })).toHaveCount(0)
+})

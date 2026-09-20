@@ -14,7 +14,6 @@ import { useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { updateAccountPreferences, useQueryAccountPreferences } from '../query/accountClient';
-import AccountBotsCard from './AccountBotsCard';
 import PageCorpus from './PageCorpus';
 import { Switch } from './ui/switch';
 import { cn } from '../utils/cn';
@@ -256,7 +255,6 @@ function AccountPreferencesScreen() {
                     preference="allowSelfJoinCasualGames"
                 />
 
-                <AccountBotsCard />
             </div>
         </PageCorpus>
     );

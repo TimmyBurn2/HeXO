@@ -1,4 +1,4 @@
-import type { BotListing, CreateOwnerBotChallengeRequest, OwnerBotChallenge, OwnerBotChallengesResponse } from '@ih3t/shared';
+import type { BotListing, BotStats, CreateOwnerBotChallengeRequest, OwnerBotChallenge, OwnerBotChallengesResponse } from '@ih3t/shared';
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchJson, fetchOptionalJson } from './apiClient';
@@ -44,5 +44,15 @@ export async function createBotChallenge(botProfileId: string, request: CreateOw
 export async function cancelBotChallenge(botProfileId: string, challengeId: string) {
     await fetchJson<{ ok: boolean }>(`/api/bots/${encodeURIComponent(botProfileId)}/challenge/${encodeURIComponent(challengeId)}/cancel`, {
         method: `POST`,
+    });
+}
+
+export function useQueryBotStats(profileId: string | null, options?: { enabled?: boolean }) {
+    return useQuery({
+        queryKey: queryKeys.botStats(profileId ?? `unknown`),
+        queryFn: () => fetchOptionalJson<BotStats>(`/api/bots/${encodeURIComponent(profileId ?? ``)}/stats`),
+        enabled: options?.enabled ?? Boolean(profileId),
+        /* Rewritten once per finished game; a minute of staleness is nothing. */
+        staleTime: 60 * 1000,
     });
 }

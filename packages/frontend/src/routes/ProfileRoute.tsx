@@ -10,6 +10,7 @@ import {
 } from '../query/accountClient';
 import { useQueryPublicProfileGames as useQueryProfileGames } from '../query/finishedGamesClient';
 import { useQueryHouseBots } from '../query/houseBotsClient';
+import { useQueryBots, useQueryBotStats } from '../query/botsClient';
 import { useQueryAvailableSessions } from '../query/sessionClient';
 import { useTranslation } from 'react-i18next'
 
@@ -35,6 +36,13 @@ function ProfileRoute() {
      * picked strength rather than over a stream. */
     const houseBotsQuery = useQueryHouseBots();
     const houseBot = houseBotsQuery.data?.bots.find((bot) => bot.profileId === targetProfileId) ?? null;
+    /* The public roster feeds the bot profile's presence and declaration, the owner's
+     * Bots list, and Play's online-bot picker. Null while the flag is off. */
+    const botsQuery = useQueryBots();
+    const botsListing = botsQuery.data ?? null;
+    const profileIsBot = profileQuery.data?.user?.kind === `bot`;
+    const botStatsQuery = useQueryBotStats(targetProfileId, { enabled: profileIsBot });
+    const botStats = profileIsBot ? botStatsQuery.data ?? null : null;
 
     const liveGame = availableSessionsQuery.data?.find((session) =>
         session.startedAt !== null && session.players.some((player) => player.profileId === targetProfileId)) ?? null;
@@ -84,6 +92,9 @@ function ProfileRoute() {
                 isPublicView={isPublicProfileRoute}
                 ownBots={ownBots}
                 houseBot={houseBot}
+                viewerAccount={accountQuery.data?.user ?? null}
+                botsListing={botsListing}
+                botStats={botStats}
             />
         </>
     );
