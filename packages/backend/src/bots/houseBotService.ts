@@ -17,7 +17,7 @@ import type { RequestClientInfo } from '../network/clientInfo';
 import { ApiRequestError } from '../network/rest/apiQueryService';
 import { SessionManager } from '../session/sessionManager';
 import { BotAccountRepository, type HouseBot } from './botAccountRepository';
-import { type BotSeatPresence, seatBotInLobby, underBotSeatGate } from './botSeatGate';
+import { type BotSeatPresence, seatBotInLobby, serverDrivenBotPresence, underBotSeatGate } from './botSeatGate';
 import { BotSeatManager } from './botSeatManager';
 import { ENGINE_CATALOGUE, type EngineName, isEngineName } from './drivers/engineCatalogue';
 import { EngineDriver } from './drivers/engineDriver';
@@ -25,11 +25,9 @@ import { EngineWorkerPool } from './drivers/engineWorkerPool';
 
 type LoadedHouseBot = HouseBot & { engine: EngineName, profile: AccountUserProfile };
 
-/** A house bot is reached by running it: always present, one virtual socket per bot. */
-const HOUSE_PRESENCE: BotSeatPresence = {
-    isOnline: () => true,
-    getSocketId: (botProfileId) => `bot:${botProfileId}`,
-};
+/* The engine pool's bots are played by the server: always present, one virtual
+ * socket per bot. */
+const HOUSE_PRESENCE: BotSeatPresence = serverDrivenBotPresence;
 
 /**
  * The server's own opponents: loads the seeded bots, hands them to the engine driver,
@@ -159,15 +157,8 @@ export class HouseBotService {
 
     /** Sessions, lobby or in-game, with a house bot seated; the cap counts lobbies too. */
     private countEngineGames(): number {
-        const sessionIds = new Set<string>();
-        for (const bot of this.bots) {
-            for (const participation of this.sessionManager.getPlayerParticipationsByProfileId(bot.account.id)) {
-                if (participation.role === `player` && participation.session.state !== `finished`) {
-                    sessionIds.add(participation.session.id);
-                }
-            }
-        }
-
-        return sessionIds.size;
+        /* The driver owns the count: a lobby's 409 and a challenge's `not-open`
+         * measure against the same number. */
+        return this.engineDriver.countActiveGames();
     }
 }

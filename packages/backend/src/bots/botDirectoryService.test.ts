@@ -54,7 +54,7 @@ const CLIENT = { ip: `127.0.0.1` } as never;
 const OPTIONS: LobbyOptions = { visibility: `public`, timeControl: { mode: `unlimited` }, rated: true, firstPlayer: `host` };
 const OPPONENT = { kind: `bot` as const, profileId: ONLINE_BOT_ID };
 
-function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[], onlineResult?: (callIndex: number) => boolean, onlineBotAccount?: BotAccount } = {}): Fixture {
+function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[], onlineResult?: (callIndex: number) => boolean, onlineBotAccount?: BotAccount, engineHasCapacity?: () => boolean } = {}): Fixture {
     const online = new Set(options.onlineBotIds ?? [ONLINE_BOT_ID]);
     const open = new Set(options.openBotIds ?? [...online]);
     let onlineCalls = 0;
@@ -101,6 +101,7 @@ function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[]
         sessionManager,
         registry as unknown as BotStreamRegistry,
         botSeatManager as unknown as BotSeatManager,
+        { hasCapacity: () => options.engineHasCapacity?.() ?? true } as never,
     );
 
     return { sessionManager, service, sessions };
@@ -161,8 +162,9 @@ test(`the roster is sorted by rating and narrows to connected bots on demand`, a
     assert.deepEqual(connected.map(({ profileId }) => profileId), [ONLINE_BOT_ID, HOUSE_BOT_ID]);
 });
 
-test(`an engine-driven bot is on the roster as always online, never open, with no owner`, async () => {
-    const { service } = createFixture();
+test(`an engine-driven bot is on the roster as always online, open while its pool has a slot, with no owner`, async () => {
+    let capacity = true;
+    const { service } = createFixture({ engineHasCapacity: () => capacity });
 
     const listing = (await service.listBots(false)).find((candidate) => candidate.profileId === HOUSE_BOT_ID);
 
@@ -172,8 +174,12 @@ test(`an engine-driven bot is on the roster as always online, never open, with n
         elo: 1_200,
         owner: undefined,
         online: true,
-        openForChallenges: false,
-    });
+        openForChallenges: true,
+    }, `a server-driven bot is a challenge target while capacity lasts (D12)`);
+
+    capacity = false;
+    const busy = (await service.listBots(false)).find((candidate) => candidate.profileId === HOUSE_BOT_ID);
+    assert.equal(busy?.openForChallenges, false, `out of capacity reads closed, exactly like a dropped stream`);
 });
 
 test(`a community-bot lobby is a normal lobby with the bot already seated`, async () => {

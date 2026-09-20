@@ -1,9 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 import {
+    type BotAccepts,
     type BotChallenge,
     type BotChallengeEvent,
     type BotChallengeFirstPlayer,
+    formatThinkSeconds,
+    type GameTimeControl,
     type LobbyFirstPlayer,
     type OwnerBotChallenge,
 } from '@ih3t/shared';
@@ -21,8 +24,10 @@ import type { ServerGameSession } from '../session/types';
 import { BotAccountRepository } from './botAccountRepository';
 import { MAX_CONCURRENT_GAMES_PER_BOT } from './botAccountService';
 import { BotPlayerMapper } from './botPlayerMapper';
-import { seatBotInLobby, underBotSeatGate } from './botSeatGate';
+import { seatBotInLobby, serverDrivenBotPresence, underBotSeatGate } from './botSeatGate';
+import { BotSeatManager } from './botSeatManager';
 import { BotStreamRegistry } from './botStreamRegistry';
+import { EngineDriver, type EngineSeatConfig } from './drivers/engineDriver';
 
 /** A rejection a bot can act on, carrying one of the contract's challenge codes. */
 export class BotChallengeError extends ApiRequestError {
@@ -51,6 +56,8 @@ type ChallengeEntry = {
 export type CreateChallengeOptions = {
     timeControl: BotChallenge[`timeControl`];
     firstPlayer: BotChallengeFirstPlayer;
+    /** Required when the target is server-driven: its thinking time per move. */
+    thinkMs?: number;
 };
 
 const SWEEP_INTERVAL_MS = 5_000;
@@ -86,6 +93,8 @@ export class ChallengeService {
         @inject(AuthRepository) private readonly authRepository: AuthRepository,
         @inject(BotPlayerMapper) private readonly botPlayerMapper: BotPlayerMapper,
         @inject(BotAccountRepository) private readonly botAccountRepository: BotAccountRepository,
+        @inject(BotSeatManager) private readonly botSeatManager: BotSeatManager,
+        @inject(EngineDriver) private readonly engineDriver: EngineDriver,
     ) {
         this.logger = rootLogger.child({ component: `challenge-service` });
     }
@@ -263,6 +272,26 @@ export class ChallengeService {
 
     /* --- internals --- */
 
+    /** The engine-driver answer for a server-driven target (D12): `thinkMs` is
+     * required, out of range is a plain 400, out of capacity is `not-open`, and the
+     * returned config is what the challenge plays at. */
+    private challengeEngineTarget(
+        target: AccountUserProfile,
+        targetName: string,
+        options: CreateChallengeOptions,
+    ): EngineSeatConfig {
+        if (options.thinkMs === undefined) {
+            throw new ApiRequestError(400, `A challenge to ${targetName} needs a thinkMs, its thinking time per move.`);
+        }
+
+        const seat = this.engineDriver.onChallenge(target.id, options.thinkMs);
+        if (!seat) {
+            throw new BotChallengeError(`${targetName} is busy in too many games right now.`, `not-open`);
+        }
+
+        return seat;
+    }
+
     private async createEntry(
         challenger: AccountUserProfile,
         challengedProfileId: string,
@@ -278,7 +307,8 @@ export class ChallengeService {
             throw new BotChallengeError(`Challenges target bots; that account is a human.`, `not-a-bot`);
         }
 
-        if (!(await this.botAccountRepository.findById(target.id))) {
+        const targetAccount = await this.botAccountRepository.findById(target.id);
+        if (!targetAccount) {
             throw new ApiRequestError(404, `That bot does not exist.`);
         }
 
@@ -286,12 +316,27 @@ export class ChallengeService {
             throw new ApiRequestError(400, `A bot cannot challenge itself.`);
         }
 
-        if (!this.botStreamRegistry.isOpenForChallenges(target.id)) {
-            throw new BotChallengeError(`That bot is not taking challenges right now.`, `not-open`);
-        }
+        /* A server-driven target has no stream to answer on; its driver answers for
+         * it (D12), at the requested strength, while the engine pool has capacity. */
+        const engineSeat = this.botSeatManager.getDriverType(target.id) === `engine`
+            ? this.challengeEngineTarget(target, targetAccount.username, options)
+            : null;
 
-        if (this.sessionManager.countActivePlayerSessionsByProfileId(target.id) >= MAX_CONCURRENT_GAMES_PER_BOT) {
-            throw new BotChallengeError(`A bot can play at most ${MAX_CONCURRENT_GAMES_PER_BOT} games at once.`, `not-open`);
+        if (!engineSeat) {
+            if (!this.botStreamRegistry.isOpenForChallenges(target.id)) {
+                throw new BotChallengeError(`That bot is not taking challenges right now.`, `not-open`);
+            }
+
+            /* The bot's own declaration narrows `open=1`: a clock it did not say it
+             * accepts is refused exactly like a closed stream (spec 0.4, DRIFT #21). */
+            if (targetAccount.declaration?.accepts
+                && !acceptsTimeControl(targetAccount.declaration.accepts, options.timeControl)) {
+                throw new BotChallengeError(`That bot does not take games with that clock.`, `not-open`);
+            }
+
+            if (this.sessionManager.countActivePlayerSessionsByProfileId(target.id) >= MAX_CONCURRENT_GAMES_PER_BOT) {
+                throw new BotChallengeError(`A bot can play at most ${MAX_CONCURRENT_GAMES_PER_BOT} games at once.`, `not-open`);
+            }
         }
 
         if (this.pendingEntries().some((entry) =>
@@ -326,6 +371,33 @@ export class ChallengeService {
             },
         ));
 
+        if (engineSeat) {
+            /* The target's driver already said yes: the seat is claimed here and the
+             * game starts on the sweep like an accepted challenge would. */
+            this.engineDriver.configureSeat(session.id, engineSeat);
+            try {
+                await underBotSeatGate(() => seatBotInLobby(
+                    { sessionManager: this.sessionManager, presence: serverDrivenBotPresence },
+                    session,
+                    target,
+                    () => this.engineDriver.countActiveGames(),
+                    {
+                        offline: () => new BotChallengeError(`That bot is not taking challenges right now.`, `not-open`),
+                        capReached: () => new BotChallengeError(`${targetAccount.username} is busy right now.`, `not-open`),
+                        seatLost: () => new ApiRequestError(400, `That challenge no longer has a seat.`),
+                    },
+                    {
+                        maxGames: this.serverConfig.houseBotMaxGames,
+                        displayName: `${targetAccount.username} ${formatThinkSeconds(engineSeat.thinkMs)}`,
+                    },
+                ));
+            } catch (error: unknown) {
+                /* The lobby empties itself through the sweep; the pin goes with it. */
+                this.engineDriver.releaseSeat(session.id);
+                throw error;
+            }
+        }
+
         const now = Date.now();
         const entry: ChallengeEntry = {
             challengeId,
@@ -344,6 +416,12 @@ export class ChallengeService {
             },
         };
         this.challenges.set(challengeId, entry);
+        if (engineSeat) {
+            /* Nothing will call accept for a target with no stream: mark it here, so
+             * a lobby that vanishes before the sweep notifies the challenger. */
+            entry.status = `accepted`;
+        }
+
         this.emitTo(target.id, { type: `challenge`, challenge: entry.view });
 
         /* The evictions transition other entries, so they take the transition mutex
@@ -499,6 +577,22 @@ export class ChallengeService {
 
         return challengeId;
     }
+}
+
+/** A declared `accepts` against a challenge's clock: the window is inclusive, and a
+ * `null` window declines turn clocks entirely, parallel to `match: false`. */
+function acceptsTimeControl(accepts: BotAccepts, timeControl: GameTimeControl): boolean {
+    if (timeControl.mode === `unlimited`) {
+        return accepts.unlimited;
+    }
+
+    if (timeControl.mode === `match`) {
+        return accepts.match;
+    }
+
+    return accepts.turnMs !== null
+        && timeControl.turnTimeMs >= accepts.turnMs[0]
+        && timeControl.turnTimeMs <= accepts.turnMs[1];
 }
 
 /** The reserved list is `[challenger, target]`, which is the lobby's `[host, guest]`. */

@@ -1028,6 +1028,7 @@
   "challenge": "Challenge",
   "challengeABot": "Challenge a Bot",
   "challengeNote": "Bot challenges are private and unrated. The challenged bot answers from its stream; an unanswered challenge expires after five minutes.",
+  "houseBotChallengeNote": "Bot challenges are private and unrated. The server plays this bot at the strength you pick, and the game starts at once.",
   "yourBot": "Your bot",
   "challengerStarts": "Challenger Starts",
   "theChallengingBotTakesTheFirstTurn": "The challenging bot takes the first turn.",

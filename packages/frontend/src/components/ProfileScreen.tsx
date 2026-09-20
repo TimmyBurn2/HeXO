@@ -33,6 +33,7 @@ import {
     formatWorldRank,
 } from '../utils/profileStats';
 import AccountPicture from './AccountPicture';
+import type { HouseBotListing } from '@ih3t/shared';
 import ChallengeDialog from './ChallengeDialog';
 import FinishedGameCard from './FinishedGameCard';
 import PageCorpus from './PageCorpus';
@@ -61,6 +62,8 @@ type ProfileScreenProps = {
     isPublicView: boolean
     /** The signed-in player's bots; null while the flag is off hides the Challenge entry. */
     ownBots?: BotAccount[] | null
+    /** The house-bot listing when the profile is one: it is challenged at a picked strength. */
+    houseBot?: HouseBotListing | null
 };
 
 type PrimaryStatCardProps = {
@@ -483,12 +486,14 @@ function ProfileScreen({
     recentGamesErrorMessage,
     isPublicView,
     ownBots = null,
+    houseBot = null,
 }: Readonly<ProfileScreenProps>) {
     const { t } = useTranslation()
     const intlFormatProvider = useIntlFormatProvider();
     const now = useSsrCompatibleNow();
     const [isChallenging, setIsChallenging] = useState(false);
-    /* Owners initiate: a Challenge entry only makes sense for a bot someone can send. */
+    /* Owners initiate: a Challenge entry only makes sense for a bot someone can send.
+     * A house bot answers through its driver, at the strength picked in the dialog. */
     const canChallenge = account?.kind === `bot` && (ownBots?.length ?? 0) > 0;
 
     const handleSignIn = async () => {
@@ -761,6 +766,7 @@ function ProfileScreen({
                     onClose={() => setIsChallenging(false)}
                     target={account}
                     ownBots={ownBots ?? []}
+                    houseBot={houseBot}
                 />
             ) : null}
         </PageCorpus>

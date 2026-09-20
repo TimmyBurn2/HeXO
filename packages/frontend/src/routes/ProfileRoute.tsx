@@ -9,6 +9,7 @@ import {
     useQueryProfileStatistics,
 } from '../query/accountClient';
 import { useQueryPublicProfileGames as useQueryProfileGames } from '../query/finishedGamesClient';
+import { useQueryHouseBots } from '../query/houseBotsClient';
 import { useQueryAvailableSessions } from '../query/sessionClient';
 import { useTranslation } from 'react-i18next'
 
@@ -30,6 +31,10 @@ function ProfileRoute() {
         enabled: !accountQuery.isLoading && Boolean(accountQuery.data?.user),
     });
     const ownBots = accountBotsQuery.data?.bots ?? null;
+    /* The house bots are public knowledge; a profile that is one is challenged at a
+     * picked strength rather than over a stream. */
+    const houseBotsQuery = useQueryHouseBots();
+    const houseBot = houseBotsQuery.data?.bots.find((bot) => bot.profileId === targetProfileId) ?? null;
 
     const liveGame = availableSessionsQuery.data?.find((session) =>
         session.startedAt !== null && session.players.some((player) => player.profileId === targetProfileId)) ?? null;
@@ -78,6 +83,7 @@ function ProfileRoute() {
                 recentGamesErrorMessage={recentGamesQuery.error instanceof Error ? recentGamesQuery.error.message : null}
                 isPublicView={isPublicProfileRoute}
                 ownBots={ownBots}
+                houseBot={houseBot}
             />
         </>
     );

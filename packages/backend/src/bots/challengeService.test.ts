@@ -45,17 +45,27 @@ type Fixture = {
     entries: Map<string, unknown>;
     online: Set<string>;
     open: Set<string>;
+    /** Session id → the engine seat config a house-bot challenge pinned. */
+    seatConfigs: Map<string, { engine: string, thinkMs: number }>;
     sweep: () => Promise<void>;
 };
 
 function createFixture(options: {
     online?: string[],
     open?: string[],
+    engine?: string[],
     inboxLimit?: number,
     ttlMs?: number,
+    /** Games the engine pool already holds; at the capacity, onChallenge refuses. */
+    engineGames?: number,
+    declarations?: Record<string, { accepts?: { turnMs: [number, number] | null, match: boolean, unlimited: boolean } }>,
 } = {}): Fixture {
     const online = new Set(options.online ?? [CHALLENGER_ID, TARGET_ID, OTHER_TARGET_ID, `bot-x`, `bot-y`, `bot-z`]);
     const open = new Set(options.open ?? [TARGET_ID, OTHER_TARGET_ID, `bot-y`, `bot-z`]);
+    const engine = new Set(options.engine ?? []);
+    const declarations = options.declarations ?? {};
+    const seatConfigs = new Map<string, { engine: string, thinkMs: number }>();
+    const engineGames = options.engineGames ?? 0;
     const events = new Map<string, unknown[]>();
 
     const sessionManager = new SessionManager(
@@ -105,7 +115,7 @@ function createFixture(options: {
         {
             findById: async (id: string) =>
                 [CHALLENGER_ID, TARGET_ID, OTHER_TARGET_ID, `bot-x`, `bot-y`, `bot-z`].includes(id)
-                    ? { id, ownerProfileId: id === CHALLENGER_ID || id === `bot-y` ? OWNER_PROFILE_ID : `owner-2` }
+                    ? { id, username: id, ownerProfileId: id === CHALLENGER_ID || id === `bot-y` ? OWNER_PROFILE_ID : `owner-2`, ...(declarations[id] ? { declaration: declarations[id] } : {}) }
                     : null,
             findByOwner: async (ownerProfileId: string, botProfileId: string) =>
                 ownerProfileId === OWNER_PROFILE_ID && botProfileId === CHALLENGER_ID
@@ -113,6 +123,19 @@ function createFixture(options: {
                     : null,
             listByOwner: async (ownerProfileId: string) =>
                 ownerProfileId === OWNER_PROFILE_ID ? [{ id: CHALLENGER_ID }] : [],
+        } as never,
+        { getDriverType: (id: string) => engine.has(id) ? `engine` : `stream` } as never,
+        {
+            onChallenge: (id: string, thinkMs: number) => engine.has(id) && thinkMs >= 10 && thinkMs <= 5_000 && engineGames < 2
+                ? { engine: `seal`, thinkMs }
+                : null,
+            configureSeat: (sessionId: string, config: { engine: string, thinkMs: number }) => {
+                seatConfigs.set(sessionId, config);
+            },
+            releaseSeat: (sessionId: string) => {
+                seatConfigs.delete(sessionId);
+            },
+            countActiveGames: () => engineGames,
         } as never,
     );
 
@@ -126,21 +149,31 @@ function createFixture(options: {
         entries: (service as unknown as { challenges: Map<string, unknown> }).challenges,
         online,
         open,
+        seatConfigs,
         sweep: () => (service as unknown as { sweep: () => Promise<void> }).sweep(),
     };
 }
 
 async function challenge(
     fixture: Fixture,
-    options: { challenger?: string, target?: string, firstPlayer?: `challenger` | `challenged` | `random` } = {},
+    options: {
+        challenger?: string,
+        target?: string,
+        firstPlayer?: `challenger` | `challenged` | `random`,
+        thinkMs?: number,
+        opening?: { randomTurns: number },
+        timeControl?: { mode: `unlimited` } | { mode: `turn`, turnTimeMs: number } | { mode: `match`, mainTimeMs: number, incrementMs: number },
+    } = {},
 ): Promise<BotChallenge> {
     return await fixture.service.createChallenge(
         profile(options.challenger ?? CHALLENGER_ID),
         options.target ?? TARGET_ID,
         { ip: `127.0.0.1` } as never,
         {
-            timeControl: { ...UNLIMITED },
+            timeControl: options.timeControl ? { ...options.timeControl } : { ...UNLIMITED },
             firstPlayer: options.firstPlayer ?? `random`,
+            ...(options.thinkMs !== undefined ? { thinkMs: options.thinkMs } : {}),
+            ...(options.opening !== undefined ? { opening: { ...options.opening } } : {}),
         },
     );
 }
@@ -244,6 +277,100 @@ test(`a target that is offline or not open is rejected with not-open`, async () 
             return true;
         },
     );
+});
+
+test(`a house-bot target accepts at the requested thinkMs and its seat is pinned`, async () => {
+    /* The registry would not call it open — it has no stream; the driver decides (D12). */
+    const fixture = createFixture({ engine: [TARGET_ID], online: [CHALLENGER_ID], open: [] });
+
+    const view = await challenge(fixture, { thinkMs: 300 });
+
+    assert.equal(view.status, `created`);
+    const entry = entryOf(fixture, view.challengeId);
+    assert.equal(entry.session.players.length, 2, `both seats are taken, the game starts on the sweep`);
+    assert.deepEqual(
+        entry.session.players.map((player) => player.displayName),
+        [`bot-a`, `bot-b 0.3s`],
+        `the strength rides on the seat name, as with a house-bot lobby`,
+    );
+    assert.deepEqual(fixture.seatConfigs.get(entry.session.id), { engine: `seal`, thinkMs: 300 });
+});
+
+test(`a house-bot target out of capacity answers not-open and leaves no lobby`, async () => {
+    const fixture = createFixture({ engine: [TARGET_ID], engineGames: 2 });
+
+    await assert.rejects(
+        () => challenge(fixture, { thinkMs: 300 }),
+        (error: unknown) => {
+            assert.ok(error instanceof BotChallengeError);
+            assert.equal(error.code, `not-open`);
+            return true;
+        },
+    );
+    assert.equal(fixture.sessions.size, 0);
+});
+
+test(`a house-bot target without a thinkMs, or outside its range, is a plain 400`, async () => {
+    const fixture = createFixture({ engine: [TARGET_ID] });
+
+    await assert.rejects(() => challenge(fixture), (error: unknown) => error instanceof ApiRequestError);
+    await assert.rejects(
+        () => challenge(fixture, { thinkMs: 9_999 }),
+        (error: unknown) => error instanceof ApiRequestError,
+        `the engine catalogue bounds the strength`,
+    );
+    assert.equal(fixture.sessions.size, 0);
+});
+
+test(`a declared window gates the challenge clock on each side of it`, async () => {
+    const fixture = createFixture({
+        declarations: { [TARGET_ID]: { accepts: { turnMs: [30_000, 60_000], match: false, unlimited: false } } },
+    });
+
+    /* Inside the window: created like always. */
+    const inside = await challenge(fixture, { timeControl: { mode: `turn`, turnTimeMs: 45_000 } });
+    assert.equal(inside.status, `created`);
+
+    /* Below and above the window, and modes it declined: not-open, exactly like a
+     * closed stream. A fresh fixture each time — one pending challenge per pair. */
+    for (const timeControl of [
+        { mode: `turn` as const, turnTimeMs: 20_000 },
+        { mode: `turn` as const, turnTimeMs: 90_000 },
+        { mode: `unlimited` as const },
+        { mode: `match` as const, mainTimeMs: 300_000, incrementMs: 5_000 },
+    ]) {
+        const fixture = createFixture({
+            declarations: { [TARGET_ID]: { accepts: { turnMs: [30_000, 60_000], match: false, unlimited: false } } },
+        });
+        await assert.rejects(
+            () => challenge(fixture, { timeControl }),
+            (error: unknown) => {
+                assert.ok(error instanceof BotChallengeError, `${JSON.stringify(timeControl)} must be not-open`);
+                assert.equal(error.code, `not-open`);
+                return true;
+            },
+        );
+    }
+});
+
+test(`turnMs null declines turn clocks, an undeclared bot takes anything`, async () => {
+    const declining = createFixture({
+        declarations: { [TARGET_ID]: { accepts: { turnMs: null, match: true, unlimited: true } } },
+    });
+    await assert.rejects(
+        () => challenge(declining, { timeControl: { mode: `turn`, turnTimeMs: 45_000 } }),
+        (error: unknown) => {
+            assert.ok(error instanceof BotChallengeError);
+            assert.equal(error.code, `not-open`);
+            return true;
+        },
+    );
+    const match = await challenge(declining, { timeControl: { mode: `match`, mainTimeMs: 300_000, incrementMs: 5_000 } });
+    assert.equal(match.status, `created`);
+
+    const undeclared = createFixture();
+    const turn = await challenge(undeclared, { timeControl: { mode: `turn`, turnTimeMs: 45_000 } });
+    assert.equal(turn.status, `created`);
 });
 
 test(`a target at the concurrent-game cap is rejected with not-open`, async () => {

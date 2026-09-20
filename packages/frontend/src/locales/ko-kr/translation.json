@@ -1028,6 +1028,7 @@
   "challenge": "도전",
   "challengeABot": "봇에게 도전",
   "challengeNote": "봇 도전은 비공개이며 무레이팅입니다. 도전받은 봇이 자신의 스트림에서 응답하며, 응답하지 않은 도전은 5분 후 만료됩니다.",
+  "houseBotChallengeNote": "봇 도전은 비공개이며 레이팅에 반영되지 않습니다. 서버가 선택한 강도로 이 봇을 플레이하며, 대국은 즉시 시작됩니다.",
   "yourBot": "내 봇",
   "challengerStarts": "도전 봇 선공",
   "theChallengingBotTakesTheFirstTurn": "도전하는 봇이 첫 수를 둡니다.",

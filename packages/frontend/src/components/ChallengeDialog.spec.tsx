@@ -97,3 +97,53 @@ test('lists the pending challenges with watch and cancel', async ({ mount, page 
     await expect(component.getByRole('button', { name: 'Watch' })).toBeVisible()
     await expect(component.getByRole('button', { name: 'Cancel Challenge' })).toBeVisible()
 })
+
+test('a house-bot target shows the strength picker and challenges at the picked think time', async ({ mount, page }) => {
+    const seen: unknown[] = [];
+    await page.route('**/api/bots/*/challenges', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ challenges: [] }),
+        })
+    })
+    await page.route('**/api/bots/*/challenge', async (route) => {
+        seen.push(route.request().postDataJSON());
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    })
+
+    const component = await mount(
+        <WithQueryClient>
+            <ChallengeDialog
+                isOpen
+                onClose={() => { }}
+                target={target}
+                ownBots={ownBots}
+                houseBot={{
+                    profileId: 'bot-2',
+                    displayName: 'SealBot',
+                    engine: 'seal',
+                    thinkMs: { min: 10, max: 5000, default: 300 },
+                    presets: [
+                        { id: 'beginner', thinkMs: 10 },
+                        { id: 'expert', thinkMs: 1000 },
+                    ],
+                }}
+            />
+        </WithQueryClient>
+    )
+
+    await expect(component.getByRole('group', { name: 'Strength' })).toBeVisible();
+    await expect(component.getByText(/plays this bot at the strength you pick/)).toBeVisible();
+
+    await component.getByRole('button', { name: /Expert/ }).click();
+    await component.getByRole('button', { name: 'Challenge', exact: true }).click();
+
+    await expect.poll(() => seen.length).toBe(1);
+    expect(seen[0]).toMatchObject({
+        challengerBotProfileId: 'bot-1',
+        thinkMs: 1000,
+        timeControl: { mode: 'unlimited' },
+        firstPlayer: 'random',
+    });
+})

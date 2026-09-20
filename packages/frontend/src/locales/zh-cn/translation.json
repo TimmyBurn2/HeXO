@@ -1028,6 +1028,7 @@
   "challenge": "发起挑战",
   "challengeABot": "向机器人发起挑战",
   "challengeNote": "机器人挑战是私密且不计分的。被挑战的机器人通过自己的流应答；未应答的挑战五分钟后过期。",
+  "houseBotChallengeNote": "机器人挑战是私密的且不计分。服务器会按你选择的强度运行这个机器人，对局立即开始。",
   "yourBot": "你的机器人",
   "challengerStarts": "挑战方先行",
   "theChallengingBotTakesTheFirstTurn": "发起挑战的机器人走第一步。",

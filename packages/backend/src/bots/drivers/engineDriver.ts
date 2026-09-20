@@ -10,6 +10,8 @@ import type { Logger } from 'pino';
 import { inject, injectable } from 'tsyringe';
 
 import { ROOT_LOGGER } from '../../logger';
+import { ApiRequestError } from '../../network/rest/apiQueryService';
+import { ServerConfig } from '../../config/serverConfig';
 import { SessionError, SessionManager } from '../../session/sessionManager';
 import type { BotSeat, BotSeatDriver } from '../botSeatManager';
 import { ENGINE_CATALOGUE, type EngineName } from './engineCatalogue';
@@ -44,6 +46,7 @@ export class EngineDriver implements BotSeatDriver {
         @inject(ROOT_LOGGER) rootLogger: Logger,
         @inject(SessionManager) private readonly sessionManager: SessionManager,
         @inject(EngineWorkerPool) private readonly pool: EngineWorkerPool,
+        @inject(ServerConfig) private readonly serverConfig: ServerConfig,
     ) {
         this.logger = rootLogger.child({ component: `engine-driver` });
     }
@@ -104,6 +107,53 @@ export class EngineDriver implements BotSeatDriver {
 
     onSessionRemoved(sessionId: string): void {
         this.releaseSeat(sessionId);
+    }
+
+    /** Every session, lobby or game, with one of this driver's bots seated — the
+     * engine pool's shared capacity, what a lobby's 409 and a challenge's `not-open`
+     * both measure against. */
+    countActiveGames(): number {
+        const sessionIds = new Set<string>();
+        for (const botProfileId of this.bots.keys()) {
+            for (const participation of this.sessionManager.getPlayerParticipationsByProfileId(botProfileId)) {
+                if (participation.role === `player` && participation.session.state !== `finished`) {
+                    sessionIds.add(participation.session.id);
+                }
+            }
+        }
+
+        return sessionIds.size;
+    }
+
+    /**
+     * A challenge arrived for a bot this driver plays (D12): it has no stream to
+     * answer on, so the driver answers for it. Validates the strength against the
+     * engine's range, answers `null` while the pool is out of capacity — the caller
+     * turns that into `not-open` — and otherwise the seat config the challenge
+     * plays at.
+     */
+    onChallenge(botProfileId: string, thinkMs: number): EngineSeatConfig | null {
+        const engine = this.bots.get(botProfileId);
+        if (!engine) {
+            return null;
+        }
+
+        const range = ENGINE_CATALOGUE[engine].thinkMs;
+        if (thinkMs < range.min || thinkMs > range.max) {
+            throw new ApiRequestError(400, `That bot thinks between ${range.min} and ${range.max} ms per move.`);
+        }
+
+        if (!this.hasCapacity()) {
+            return null;
+        }
+
+        return { engine, thinkMs };
+    }
+
+    /** True while the engine pool has a slot: what a challenge's `not-open` and the
+     * roster's `openForChallenges` both report for a server-driven bot. */
+    hasCapacity(): boolean {
+        return this.countActiveGames() < this.serverConfig.houseBotMaxGames;
     }
 
     /**

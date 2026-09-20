@@ -43,7 +43,7 @@ function withDriver(
     test(name, async () => {
         const sessionManager = createTestSessionManager();
         const pool = new FakePool();
-        const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool as unknown as EngineWorkerPool);
+        const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool as unknown as EngineWorkerPool, { houseBotMaxGames: 2 } as never);
         const manager = new BotSeatManager(pino({ level: `silent` }), sessionManager);
         driver.registerBot(BOT_PROFILE_ID, `seal`);
         manager.registerDriver(driver);
@@ -203,7 +203,7 @@ test(`sanitizeTurn keeps the legal prefix and fills the rest`, () => {
 test(`with a real pool, a hung worker resigns its game and the next game is still served`, async () => {
     const sessionManager = createTestSessionManager();
     const pool = new EngineWorkerPool(pino({ level: `silent` }), { size: 1, graceMs: 2_000, entry: new URL(`./engineWorker.fixture.ts`, import.meta.url) });
-    const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool);
+    const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool, { houseBotMaxGames: 2 } as never);
     const manager = new BotSeatManager(pino({ level: `silent` }), sessionManager);
     driver.registerBot(BOT_PROFILE_ID, `seal`);
     manager.registerDriver(driver);

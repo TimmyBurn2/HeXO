@@ -1028,6 +1028,7 @@
   "challenge": "Herausfordern",
   "challengeABot": "Einen Bot herausfordern",
   "challengeNote": "Bot-Herausforderungen sind privat und ungewertet. Der geforderte Bot antwortet über seinen Stream; eine unbeantwortete Herausforderung läuft nach fünf Minuten ab.",
+  "houseBotChallengeNote": "Bot-Herausforderungen sind privat und nicht gewertet. Der Server spielt diesen Bot in der gewählten Stärke, und die Partie beginnt sofort.",
   "yourBot": "Dein Bot",
   "challengerStarts": "Fordernder beginnt",
   "theChallengingBotTakesTheFirstTurn": "Der fordernde Bot macht den ersten Zug.",

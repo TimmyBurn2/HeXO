@@ -614,6 +614,19 @@ test(`a malformed challenge body answers 400, and a human target carries not-a-b
         assert.equal(malformed.status, 400);
         assert.deepEqual(await malformed.json(), { error: `The challenge options are not valid.` });
 
+        /* The floors the spec promises are the route's to enforce. */
+        for (const subFloored of [
+            { mode: `turn` as const, turnTimeMs: 1_000 },
+            { mode: `match` as const, mainTimeMs: 30_000, incrementMs: 5_000 },
+        ]) {
+            const floored = await fetch(`${baseUrl}/bot/challenge/bot-2`, {
+                method: `POST`,
+                headers: { 'Content-Type': `application/json` },
+                body: JSON.stringify({ timeControl: subFloored }),
+            });
+            assert.equal(floored.status, 400, JSON.stringify(subFloored));
+        }
+
         const rejected = await fetch(`${baseUrl}/bot/challenge/bot-2`, {
             method: `POST`,
             headers: { 'Content-Type': `application/json` },

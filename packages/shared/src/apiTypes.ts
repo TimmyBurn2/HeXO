@@ -130,17 +130,28 @@ export function formatThinkSeconds(thinkMs: number): string {
     return `${thinkMs / 1000}s`;
 }
 
+/* Server-placed opening variety, spec 0.4.1: `randomTurns` full turns — two alternating
+ * random legal stones after the origin — so the handover is always a whole turn. A
+ * turn, not a stone, because stones come in pairs after the origin and an odd one
+ * would leave a half turn no engine can answer. */
+export const zBotOpening = z.object({
+    randomTurns: z.number().int().min(0).max(3),
+});
+export type BotOpening = z.infer<typeof zBotOpening>;
+
 /* Who takes the other seat of a new lobby; absent means an open lobby. */
 export const zLobbyOpponent = z.discriminatedUnion(`kind`, [
     z.object({
         kind: z.literal(`house-bot`),
         profileId: zIdentifier,
         thinkMs: z.number().int().nonnegative(),
+        opening: zBotOpening.optional(),
     }),
     /* A community bot: seated at creation over its stream, like a house bot over its engine. */
     z.object({
         kind: z.literal(`bot`),
         profileId: zIdentifier,
+        opening: zBotOpening.optional(),
     }),
 ]);
 export type LobbyOpponent = z.infer<typeof zLobbyOpponent>;
@@ -452,6 +463,8 @@ export const zBotGameStartEvent = z.object({
     side: zHtttxSide,
     opponent: zBotPlayer,
     timeControl: zGameTimeControl,
+    /* The server-placed opening, when the game has one. */
+    opening: zBotOpening.optional(),
     rated: z.boolean(),
 });
 export type BotGameStartEvent = z.infer<typeof zBotGameStartEvent>;
@@ -504,9 +517,24 @@ export const zBotChallenge = z.object({
 });
 export type BotChallenge = z.infer<typeof zBotChallenge>;
 
+/* The challenge body's clock, floored as the spec promises (turn ≥ 5 s, match ≥ 60 s):
+ * the lobby routes have always floored there, and the contract says a bot can rely on it. */
+export const zBotChallengeTimeControl = zGameTimeControl.superRefine((timeControl, context) => {
+    if (timeControl.mode === `turn` && timeControl.turnTimeMs < 5_000) {
+        context.addIssue({ code: `custom`, message: `a turn clock must be worth at least 5000 ms` });
+    }
+
+    if (timeControl.mode === `match` && timeControl.mainTimeMs < 60_000) {
+        context.addIssue({ code: `custom`, message: `a match clock must be worth at least 60000 ms` });
+    }
+});
+
 export const zCreateBotChallengeRequest = z.object({
-    timeControl: zGameTimeControl,
+    timeControl: zBotChallengeTimeControl,
     firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+    /* Required when the target is server-driven; ignored otherwise. */
+    thinkMs: z.number().int().positive().optional(),
+    opening: zBotOpening.optional(),
 });
 export type CreateBotChallengeRequest = z.infer<typeof zCreateBotChallengeRequest>;
 
@@ -555,6 +583,8 @@ export const zCreateOwnerBotChallengeRequest = z.object({
     challengerBotProfileId: zIdentifier,
     timeControl: zGameTimeControl,
     firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+    thinkMs: z.number().int().positive().optional(),
+    opening: zBotOpening.optional(),
 });
 export type CreateOwnerBotChallengeRequest = z.infer<typeof zCreateOwnerBotChallengeRequest>;
 

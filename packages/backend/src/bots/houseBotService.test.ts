@@ -41,7 +41,7 @@ async function createFixture(options: { maxGames?: number, bots?: HouseBot[] } =
     const sessionManager = createTestSessionManager();
     const manager = new BotSeatManager(pino({ level: `silent` }), sessionManager);
     const pool = { suggestTurn: () => Promise.reject(new Error(`no think in this suite`)), shutdown: () => Promise.resolve() };
-    const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool as unknown as EngineWorkerPool);
+    const driver = new EngineDriver(pino({ level: `silent` }), sessionManager, pool as unknown as EngineWorkerPool, { houseBotMaxGames: options.maxGames ?? 2 } as never);
     const bots = options.bots ?? [houseBot(SEAL_ID, `seal`)];
     const service = new HouseBotService(
         pino({ level: `silent` }),

@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import type { BotAccount, BotChallengeFirstPlayer, PublicAccountProfile } from '@ih3t/shared';
+import type { BotAccount, BotChallengeFirstPlayer, HouseBotListing, PublicAccountProfile } from '@ih3t/shared';
 import type { TFunction } from 'i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -9,15 +9,18 @@ import { toast } from 'react-toastify';
 import { joinSession } from '../liveGameClient';
 import { cancelBotChallenge, createBotChallenge, useQueryBotChallenges } from '../query/botsClient';
 import { queryKeys } from '../query/queryDefinitions';
+import HouseBotStrengthPicker from './houseBotStrengthPicker';
 import { LobbyDialogShell, LobbyTimeControlSelector, SelectableOptions, useLobbyTimeControl } from './lobbyOptionsShared';
 
 type ChallengeDialogProps = {
     isOpen: boolean
     onClose: () => void
-    /** The bot being challenged; it must answer from its own stream. */
+    /** The bot being challenged: it answers from its stream, or through its driver. */
     target: PublicAccountProfile
     /** The signed-in player's bots; the challenger is picked from these. */
     ownBots: BotAccount[]
+    /** The target's house-bot listing when it is one: challenged at a picked strength. */
+    houseBot?: HouseBotListing | null
 };
 
 type LocalizedOption = {
@@ -50,11 +53,12 @@ const firstPlayerOptions: LocalizedOption[] = [
  * the same place, and Watch opens the ordinary session URL — the owner spectates the
  * lobby and sees the game start when the target accepts.
  */
-function ChallengeDialog({ isOpen, onClose, target, ownBots }: Readonly<ChallengeDialogProps>) {
+function ChallengeDialog({ isOpen, onClose, target, ownBots, houseBot = null }: Readonly<ChallengeDialogProps>) {
     const { t } = useTranslation()
     const queryClient = useQueryClient();
     const [challengerBotProfileId, setChallengerBotProfileId] = useState(ownBots[0]?.id ?? ``);
     const [firstPlayer, setFirstPlayer] = useState<BotChallengeFirstPlayer>(`random`);
+    const [thinkMs, setThinkMs] = useState(houseBot?.thinkMs.default ?? 0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const timeControl = useLobbyTimeControl();
 
@@ -64,8 +68,9 @@ function ChallengeDialog({ isOpen, onClose, target, ownBots }: Readonly<Challeng
         if (isOpen) {
             setChallengerBotProfileId(ownBots[0]?.id ?? ``);
             setFirstPlayer(`random`);
+            setThinkMs(houseBot?.thinkMs.default ?? 0);
         }
-    }, [isOpen, ownBots]);
+    }, [isOpen, ownBots, houseBot]);
 
     if (!isOpen) {
         return null;
@@ -88,6 +93,8 @@ function ChallengeDialog({ isOpen, onClose, target, ownBots }: Readonly<Challeng
                 challengerBotProfileId,
                 timeControl: timeControl.selectedTimeControl,
                 firstPlayer,
+                /* A house bot has no stream to answer on; its driver plays the strength. */
+                ...(houseBot ? { thinkMs } : {}),
             });
             refresh();
         } catch (error) {
@@ -142,6 +149,17 @@ function ChallengeDialog({ isOpen, onClose, target, ownBots }: Readonly<Challeng
                                 <LobbyTimeControlSelector timeControl={timeControl} />
                             </section>
 
+                            {houseBot ? (
+                                <section className="p-0">
+                                    <HouseBotStrengthPicker
+                                        key={houseBot.profileId}
+                                        bot={houseBot}
+                                        thinkMs={thinkMs}
+                                        onChange={setThinkMs}
+                                    />
+                                </section>
+                            ) : null}
+
                             <section className="p-0">
                                 <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
                                     {t('firstPlayer', 'First Player')}
@@ -160,7 +178,9 @@ function ChallengeDialog({ isOpen, onClose, target, ownBots }: Readonly<Challeng
                             </section>
 
                             <div className="rounded-[0.9rem] border border-white/8 bg-white/4 px-3 py-2.5 text-xs leading-5 text-slate-300">
-                                {t('challengeNote', 'Bot challenges are private and unrated. The challenged bot answers from its stream; an unanswered challenge expires after five minutes.')}
+                                {houseBot
+                                    ? t('houseBotChallengeNote', 'Bot challenges are private and unrated. The server plays this bot at the strength you pick, and the game starts at once.')
+                                    : t('challengeNote', 'Bot challenges are private and unrated. The challenged bot answers from its stream; an unanswered challenge expires after five minutes.')}
                             </div>
 
                             {pendingChallenges.length > 0 ? (

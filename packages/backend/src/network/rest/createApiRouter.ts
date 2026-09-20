@@ -24,6 +24,7 @@ import {
     zAdminUpdateUserPermissionsRequest,
     zCreateBotAccountRequest,
     zBotDeclarationPatch,
+    zBotOpening,
     zCreateBotChallengeRequest,
     zCreateSandboxPositionRequest,
     zCreateTournamentRequest,
@@ -128,11 +129,14 @@ const zGameTimeControlInput = z.union([
     }),
 ]);
 /* The website's Challenge dialog: the same floor the Play dialog enforces, plus the
- * bot that fights on the owner's behalf. */
+ * bot that fights on the owner's behalf. `thinkMs` and `opening` ride along when the
+ * target is server-driven or the game asks for an opening. */
 const zCreateOwnerBotChallengeRequestInput = z.object({
     challengerBotProfileId: z.string().min(1),
     timeControl: zGameTimeControlInput,
     firstPlayer: zBotChallengeFirstPlayer.default(`random`),
+    thinkMs: z.number().int().positive().optional(),
+    opening: zBotOpening.optional(),
 });
 
 const zCreateSessionRequestInput = z.object({

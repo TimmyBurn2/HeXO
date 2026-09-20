@@ -403,6 +403,52 @@ test('offers the challenge action on a bot profile the viewer owns bots for', as
   await expect(component.getByRole('combobox')).toHaveValue('bot-1')
 })
 
+test('a house bot profile offers the challenge action with the strength picker', async ({ mount }) => {
+  const component = await mount(
+    <ProfileScreen
+      account={{ ...account, kind: 'bot' }}
+      statistics={statistics}
+      recentGames={recentGames}
+      liveGame={null}
+      isLoading={false}
+      isStatisticsLoading={false}
+      isRecentGamesLoading={false}
+      errorMessage={null}
+      statisticsErrorMessage={null}
+      recentGamesErrorMessage={null}
+      isPublicView
+      houseBot={{
+        profileId: account.id,
+        displayName: 'SealBot',
+        engine: 'seal',
+        thinkMs: { min: 10, max: 5000, default: 300 },
+        presets: [
+          { id: 'beginner', thinkMs: 10 },
+          { id: 'expert', thinkMs: 1000 },
+        ],
+      }}
+      ownBots={[
+        {
+          id: 'bot-1',
+          username: 'Strix',
+          image: null,
+          ownerProfileId: 'profile-1',
+          createdAt: 1,
+          tokenRotatedAt: null,
+        },
+      ]}
+    />
+  )
+
+  await expect(component.getByRole('button', { name: 'Challenge' })).toBeVisible()
+  await component.getByRole('button', { name: 'Challenge' }).click()
+  await expect(component.getByText('Challenge a Bot')).toBeVisible()
+  /* The server plays this bot at the picked strength, so the picker is right there. */
+  await expect(component.getByRole('group', { name: 'Strength' })).toBeVisible()
+  await expect(component.getByRole('button', { name: /Beginner/ })).toBeVisible()
+  await expect(component.getByText(/plays this bot at the strength you pick/)).toBeVisible()
+})
+
 test('a human profile never offers the challenge action', async ({ mount }) => {
   const component = await mount(
     <ProfileScreen

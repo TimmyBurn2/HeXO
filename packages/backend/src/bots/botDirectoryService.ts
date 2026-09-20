@@ -14,6 +14,7 @@ import { BotPlayerMapper } from './botPlayerMapper';
 import { type BotSeatPresence, seatBotInLobby, underBotSeatGate } from './botSeatGate';
 import { BotSeatManager } from './botSeatManager';
 import { BotStreamRegistry } from './botStreamRegistry';
+import { EngineDriver } from './drivers/engineDriver';
 
 @injectable()
 export class BotDirectoryService {
@@ -31,6 +32,7 @@ export class BotDirectoryService {
         @inject(SessionManager) private readonly sessionManager: SessionManager,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
         @inject(BotSeatManager) private readonly botSeatManager: BotSeatManager,
+        @inject(EngineDriver) private readonly engineDriver: EngineDriver,
     ) {
         this.logger = rootLogger.child({ component: `bot-directory-service` });
     }
@@ -48,7 +50,11 @@ export class BotDirectoryService {
                 ...await this.botPlayerMapper.fromAccount(account),
                 owner: account.ownerProfileId ?? undefined,
                 online: engineDriven || this.botStreamRegistry.isOnline(account.id),
-                openForChallenges: !engineDriven && this.botStreamRegistry.isOpenForChallenges(account.id),
+                /* A server-driven bot takes challenges while its pool has a slot
+                 * (D12); a stream bot while it holds `open=1`. */
+                openForChallenges: engineDriven
+                    ? this.engineDriver.hasCapacity()
+                    : this.botStreamRegistry.isOpenForChallenges(account.id),
                 ...(account.declaration?.accepts ? { accepts: account.declaration.accepts } : {}),
             } satisfies BotListing;
         }));

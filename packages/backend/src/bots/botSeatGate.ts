@@ -22,6 +22,13 @@ export type BotSeatPresence = {
  */
 export const botSeatGate = new Mutex();
 
+/** A bot the server itself drives is always reachable, and its games all hang off
+ * one virtual socket id, like a stream bot's do. */
+export const serverDrivenBotPresence: BotSeatPresence = {
+    isOnline: () => true,
+    getSocketId: (botProfileId) => `bot:${botProfileId}`,
+};
+
 export function underBotSeatGate<T>(claim: () => Promise<T>): Promise<T> {
     return botSeatGate.runExclusive(claim);
 }
