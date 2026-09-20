@@ -327,6 +327,8 @@ export const zBotListing = z.object({
     owner: zIdentifier.optional(),
     online: z.boolean(),
     openForChallenges: z.boolean(),
+    /* What the bot declared it will play under; absent when it never declared. */
+    accepts: zBotAccepts.optional(),
 });
 export type BotListing = z.infer<typeof zBotListing>;
 

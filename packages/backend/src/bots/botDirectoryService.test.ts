@@ -40,8 +40,8 @@ function botProfile(id: string): AccountUserProfile {
     return { ...HUMAN_PROFILE, id, username: id, kind: `bot` };
 }
 
-function botAccount(id: string, ownerProfileId: string | null = OWNER_PROFILE_ID): BotAccount {
-    return { id, username: id, image: null, ownerProfileId, createdAt: 0, tokenRotatedAt: null };
+function botAccount(id: string, ownerProfileId: string | null = OWNER_PROFILE_ID, declaration?: BotAccount[`declaration`]): BotAccount {
+    return { id, username: id, image: null, ownerProfileId, createdAt: 0, tokenRotatedAt: null, ...(declaration ? { declaration } : {}) };
 }
 
 type Fixture = {
@@ -54,7 +54,7 @@ const CLIENT = { ip: `127.0.0.1` } as never;
 const OPTIONS: LobbyOptions = { visibility: `public`, timeControl: { mode: `unlimited` }, rated: true, firstPlayer: `host` };
 const OPPONENT = { kind: `bot` as const, profileId: ONLINE_BOT_ID };
 
-function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[], onlineResult?: (callIndex: number) => boolean } = {}): Fixture {
+function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[], onlineResult?: (callIndex: number) => boolean, onlineBotAccount?: BotAccount } = {}): Fixture {
     const online = new Set(options.onlineBotIds ?? [ONLINE_BOT_ID]);
     const open = new Set(options.openBotIds ?? [...online]);
     let onlineCalls = 0;
@@ -75,7 +75,7 @@ function createFixture(options: { onlineBotIds?: string[], openBotIds?: string[]
     const sessions = (sessionManager as unknown as { sessions: Map<string, ServerGameSession> }).sessions;
 
     const botAccountRepository = {
-        listAll: async () => [botAccount(ONLINE_BOT_ID), botAccount(OFFLINE_BOT_ID, `owner-2`), botAccount(HOUSE_BOT_ID, null)],
+        listAll: async () => [options.onlineBotAccount ?? botAccount(ONLINE_BOT_ID), botAccount(OFFLINE_BOT_ID, `owner-2`), botAccount(HOUSE_BOT_ID, null)],
         findById: async (id: string) => (id === ONLINE_BOT_ID || id === OFFLINE_BOT_ID) ? botAccount(id) : null,
     };
     const authRepository = {
@@ -140,6 +140,15 @@ test(`the roster carries owner, rounded elo and connection state`, async () => {
     assert.equal(byId.get(OFFLINE_BOT_ID)?.online, false);
     assert.equal(byId.get(OFFLINE_BOT_ID)?.openForChallenges, false, `openness is read off the stream, never guessed`);
     assert.equal(byId.get(OFFLINE_BOT_ID)?.owner, `owner-2`);
+});
+
+test(`the roster carries a declared window, and nothing for an undeclared bot`, async () => {
+    const accepts = { turnMs: [30_000, 60_000] as [number, number], match: false, unlimited: true };
+    const { service } = createFixture({ onlineBotAccount: botAccount(ONLINE_BOT_ID, OWNER_PROFILE_ID, { accepts }) });
+
+    const byId = new Map((await service.listBots(false)).map((listing: BotListing) => [listing.profileId, listing]));
+    assert.deepEqual(byId.get(ONLINE_BOT_ID)?.accepts, accepts);
+    assert.equal(`accepts` in (byId.get(OFFLINE_BOT_ID) ?? {}), false, `never declared, never present`);
 });
 
 test(`the roster is sorted by rating and narrows to connected bots on demand`, async () => {

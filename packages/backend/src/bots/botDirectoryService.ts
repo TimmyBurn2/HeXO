@@ -49,6 +49,7 @@ export class BotDirectoryService {
                 owner: account.ownerProfileId ?? undefined,
                 online: engineDriven || this.botStreamRegistry.isOnline(account.id),
                 openForChallenges: !engineDriven && this.botStreamRegistry.isOpenForChallenges(account.id),
+                ...(account.declaration?.accepts ? { accepts: account.declaration.accepts } : {}),
             } satisfies BotListing;
         }));
 
