@@ -41,6 +41,7 @@ function createRouter(overrides: {
     botPlayService?: Partial<Record<string, unknown>>;
     houseBotService?: Partial<Record<string, unknown>>;
     sessionManager?: Partial<Record<string, unknown>>;
+    botStatsService?: Partial<Record<string, unknown>>;
     botDirectoryService?: Partial<Record<string, unknown>>;
     challengeService?: Partial<Record<string, unknown>>;
 }) {
@@ -94,6 +95,11 @@ function createRouter(overrides: {
         { attach: () => { }, open: () => { }, getSocketId: (id: string) => `bot:${id}` } as never,
         {
             attach: () => { },
+            getFor: () => Promise.resolve(statsFixture()),
+            ...overrides.botStatsService,
+        } as never,
+        {
+            attach: () => { },
             replayPending: () => { },
             createChallenge: () => Promise.resolve(challengeView),
             acceptChallenge: () => Promise.resolve(),
@@ -107,6 +113,21 @@ function createRouter(overrides: {
         } as never,
         houseBotService as never,
     );
+}
+
+function statsFixture(overrides: Record<string, unknown> = {}) {
+    return {
+        botProfileId: `bot-1`,
+        generatedAt: 0,
+        overall: { games: 3, wins: 2, losses: 1, draws: 0 },
+        lossesByReason: { timeout: 1 },
+        vsHumans: { games: 1, wins: 1, losses: 0, draws: 0 },
+        vsBots: { games: 2, wins: 1, losses: 1, draws: 0 },
+        vsBotByOpponent: [{ opponent: `SealBot 0.3s`, record: { games: 2, wins: 1, losses: 1, draws: 0 } }],
+        medianThinkMs: 3_000,
+        lastSeenAt: 1_700_000_000_000,
+        ...overrides,
+    };
 }
 
 async function withServer(
@@ -745,5 +766,43 @@ test(`the owner lists and cancels pending challenges`, async () => {
         assert.equal(cancel.status, 200);
         assert.deepEqual(await cancel.json(), { ok: true });
         assert.deepEqual(seen, [`bot-2:c_9`]);
+    });
+});
+
+test(`a bot's stats are public while the flag is on, absent while it is off`, async () => {
+    const seen: string[] = [];
+    const router = createRouter({
+        botStatsService: {
+            getFor: (profileId: string) => {
+                seen.push(profileId);
+                return Promise.resolve(statsFixture({ botProfileId: profileId }));
+            },
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/bot-1/stats`);
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).botProfileId, `bot-1`);
+        assert.deepEqual(seen, [`bot-1`]);
+    });
+
+    await withServer(createRouter({ botApiEnabled: false }), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/bot-1/stats`);
+        assert.equal(response.status, 404);
+    });
+});
+
+test(`stats for an unknown bot keep the service's 404`, async () => {
+    const router = createRouter({
+        botStatsService: {
+            getFor: () => Promise.reject(new ApiRequestError(404, `That bot does not exist.`)),
+        },
+    });
+
+    await withServer(router, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/bots/nope/stats`);
+        assert.equal(response.status, 404);
+        assert.deepEqual(await response.json(), { error: `That bot does not exist.` });
     });
 });

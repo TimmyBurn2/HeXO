@@ -12,6 +12,7 @@ export const queryKeys = {
     bots: [`bots`] as const,
     onlineBots: [`bots`, `online`] as const,
     botChallenges: (profileId: string) => [`bots`, profileId, `challenges`] as const,
+    botStats: (profileId: string) => [`bots`, profileId, `stats`] as const,
 
     profile: (profileId: string | null) => [`profile`, profileId ?? `unknown`] as const,
     profileRecentGames: (profileId: string | null) => [

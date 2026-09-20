@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+    type BotStats,
+    type BotStatsRecord,
     type AccountEloHistory,
     AccountEloHistoryPoint,
     type AdminLongestGameInDuration,
@@ -184,6 +186,96 @@ export class GameHistoryRepository {
                 `Failed to append game moves`,
             );
         }
+    }
+
+    /**
+     * One bot's stats over its finished games (D11): derived, never declared. Read per
+     * finish into the `botStats` cache; the aggregation fetches the bot's games and
+     * reduces in memory, which stays cheap because the cache is written cold.
+     */
+    async aggregateBotStats(botProfileId: string, now = Date.now()): Promise<BotStats> {
+        const collection = await this.getCollection();
+        const games = await collection
+            .find(
+                { finishedAt: { $ne: null }, "players.profileId": botProfileId },
+                { projection: { players: 1, gameResult: 1, finishedAt: 1, moves: 1 } },
+            )
+            .toArray();
+
+        const overall = emptyStatsRecord();
+        const vsHumans = emptyStatsRecord();
+        const vsBots = emptyStatsRecord();
+        const lossesByReason: Record<string, number> = {};
+        const byBotOpponent = new Map<string, BotStatsRecord>();
+        const thinkTimesMs: number[] = [];
+        let lastSeenAt: number | null = null;
+
+        for (const game of games) {
+            /* An abort is a lobby that never became a game (or barely did): it is
+             * nobody's record. A terminated game is a real one nobody won: a draw. */
+            if (game.gameResult?.reason === `aborted`) {
+                continue;
+            }
+
+            const seat = game.players.find((player) => player.profileId === botProfileId);
+            if (!seat) {
+                continue;
+            }
+
+            const result = game.gameResult;
+            const won = result !== null && result.winningPlayerId === seat.playerId;
+            const drew = result === null || result.winningPlayerId === null;
+
+            const counts = { won, drew };
+
+            overall.games += 1;
+            countInto(overall, counts);
+
+            const anyBotOpponent = game.players.some((player) => player !== seat && player.isBot === true);
+            const vsBucket = anyBotOpponent ? vsBots : vsHumans;
+            vsBucket.games += 1;
+            countInto(vsBucket, counts);
+
+            if (!won && !drew && result?.reason) {
+                lossesByReason[result.reason] = (lossesByReason[result.reason] ?? 0) + 1;
+            }
+
+            for (const player of game.players) {
+                if (player === seat || player.isBot !== true) {
+                    continue;
+                }
+
+                /* A house bot's seat name carries its strength, so grouping by name
+                 * splits "vs SealBot 0.3s" from "vs SealBot 1s" on its own. */
+                const record = byBotOpponent.get(player.displayName) ?? emptyStatsRecord();
+                record.games += 1;
+                countInto(record, counts);
+                byBotOpponent.set(player.displayName, record);
+            }
+
+            collectThinkTimes(game.moves ?? [], seat.playerId, thinkTimesMs);
+
+            if (typeof game.finishedAt === `number`) {
+                lastSeenAt = Math.max(lastSeenAt ?? 0, game.finishedAt);
+            }
+        }
+
+        return {
+            botProfileId,
+            generatedAt: now,
+            overall,
+            lossesByReason,
+            vsHumans,
+            vsBots,
+            vsBotByOpponent: [...byBotOpponent.entries()]
+                .map(([opponent, record]) => ({ opponent, record }))
+                .sort((left, right) =>
+                    right.record.games - left.record.games
+                    || left.opponent.localeCompare(right.opponent))
+                .slice(0, 8),
+            medianThinkMs: median(thinkTimesMs),
+            lastSeenAt,
+        };
     }
 
     async finishGame(
@@ -1304,4 +1396,52 @@ export class GameHistoryRepository {
             `Game history does not exist`,
         );
     }
+}
+
+function emptyStatsRecord(): BotStatsRecord {
+    return { games: 0, wins: 0, losses: 0, draws: 0 };
+}
+
+function countInto(record: BotStatsRecord, counts: { won: boolean, drew: boolean }): void {
+    if (counts.won) {
+        record.wins += 1;
+    } else if (counts.drew) {
+        record.draws += 1;
+    } else {
+        record.losses += 1;
+    }
+}
+
+/** A turn's think time: from the opponent's last stone to the bot's first of the
+ * turn. The two stones of a compound turn share a timestamp, so only the first
+ * measures a think. */
+function collectThinkTimes(moves: GameMove[], botPlayerId: string, into: number[]): void {
+    for (let index = 0; index < moves.length; index += 1) {
+        const move = moves[index];
+        if (!move || move.playerId !== botPlayerId) {
+            continue;
+        }
+
+        const previous = moves[index - 1];
+        if (!previous || previous.playerId === botPlayerId) {
+            continue;
+        }
+
+        const thinkMs = move.timestamp - previous.timestamp;
+        if (thinkMs >= 0) {
+            into.push(thinkMs);
+        }
+    }
+}
+
+function median(values: number[]): number | null {
+    if (values.length === 0) {
+        return null;
+    }
+
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1
+        ? sorted[middle]!
+        : Math.round((sorted[middle - 1]! + sorted[middle]!) / 2);
 }

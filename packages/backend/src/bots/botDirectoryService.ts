@@ -55,7 +55,10 @@ export class BotDirectoryService {
                 openForChallenges: engineDriven
                     ? this.engineDriver.hasCapacity()
                     : this.botStreamRegistry.isOpenForChallenges(account.id),
-                ...(account.declaration?.accepts ? { accepts: account.declaration.accepts } : {}),
+                ...(account.declaration?.about !== undefined ? { about: account.declaration.about } : {}),
+                ...(account.declaration?.version !== undefined ? { version: account.declaration.version } : {}),
+                ...(account.declaration?.repoUrl !== undefined ? { repoUrl: account.declaration.repoUrl } : {}),
+                ...(account.declaration?.accepts !== undefined ? { accepts: account.declaration.accepts } : {}),
             } satisfies BotListing;
         }));
 

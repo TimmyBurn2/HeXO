@@ -12,6 +12,8 @@ import { BotDirectoryService } from '../bots/botDirectoryService';
 import { BotPlayService } from '../bots/botPlayService';
 import { BotPlayerMapper } from '../bots/botPlayerMapper';
 import { BotSeatManager } from '../bots/botSeatManager';
+import { BotStatsRepository } from '../bots/botStatsRepository';
+import { BotStatsService } from '../bots/botStatsService';
 import { BotStreamRegistry } from '../bots/botStreamRegistry';
 import { ChallengeService } from '../bots/challengeService';
 import { EngineDriver } from '../bots/drivers/engineDriver';
@@ -63,6 +65,8 @@ export function createAppContainer(): DependencyContainer {
     appContainer.registerSingleton(BotAccountService);
     appContainer.registerSingleton(BotAuthService);
     appContainer.registerSingleton(BotDirectoryService);
+    appContainer.registerSingleton(BotStatsRepository);
+    appContainer.registerSingleton(BotStatsService);
     appContainer.registerSingleton(ChallengeService);
     appContainer.registerSingleton(BotPlayerMapper);
     appContainer.registerSingleton(BotPlayService);

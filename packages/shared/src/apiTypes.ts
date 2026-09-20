@@ -281,7 +281,9 @@ export type BotAccepts = z.infer<typeof zBotAccepts>;
 export const zBotDeclarationPatch = z.object({
     about: z.string().max(280).optional(),
     version: z.string().optional(),
-    repoUrl: z.union([z.literal(``), z.url()]).optional(),
+    /* http(s) only: the profile renders the declared repo as a live link, and a
+     * `z.url()` alone still admits javascript: and data: schemes. */
+    repoUrl: z.union([z.literal(``), z.url({ protocol: /^https?$/ })]).optional(),
     accepts: zBotAccepts.optional(),
 });
 export type BotDeclarationPatch = z.infer<typeof zBotDeclarationPatch>;
@@ -290,7 +292,7 @@ export type BotDeclarationPatch = z.infer<typeof zBotDeclarationPatch>;
 export const zBotDeclaration = z.object({
     about: z.string().min(1).max(280).optional(),
     version: z.string().min(1).optional(),
-    repoUrl: z.url().optional(),
+    repoUrl: z.url({ protocol: /^https?$/ }).optional(),
     accepts: zBotAccepts.optional(),
 });
 export type BotDeclaration = z.infer<typeof zBotDeclaration>;
@@ -330,6 +332,40 @@ export type BotAccountTokenResponse = z.infer<
     typeof zBotAccountTokenResponse
 >;
 
+/** A bot's competitive record: games and W/L/T, split by how games ended and by who
+ * the opponent was. Derived from game history, never declared (D11). */
+export const zBotStatsRecord = z.object({
+    games: z.number().int().nonnegative(),
+    wins: z.number().int().nonnegative(),
+    losses: z.number().int().nonnegative(),
+    draws: z.number().int().nonnegative(),
+});
+export type BotStatsRecord = z.infer<typeof zBotStatsRecord>;
+
+/* One bot's stats, aggregated over its finished games and cached per finish. The
+ * per-opponent table is the de-facto ladder until bot rating exists: a house bot's
+ * seat name carries its strength, so the grouping splits by strength on its own. */
+export const zBotStats = z.object({
+    botProfileId: zIdentifier,
+    /** When the cache was last rewritten: a finish involving the bot, or the first read. */
+    generatedAt: zTimestamp,
+    overall: zBotStatsRecord,
+    /** Losses by how the game ended: a bot that loses on time is a different problem
+     * from a bot that loses. */
+    lossesByReason: z.record(z.string(), z.number().int().nonnegative()),
+    vsHumans: zBotStatsRecord,
+    vsBots: zBotStatsRecord,
+    vsBotByOpponent: z.array(z.object({
+        opponent: z.string(),
+        record: zBotStatsRecord,
+    })),
+    /** Median of the bot's turn think times, measured between the opponent's last
+     * stone and the bot's first; null until a turn was measurable. */
+    medianThinkMs: z.number().int().nonnegative().nullable(),
+    lastSeenAt: zTimestamp.nullable(),
+});
+export type BotStats = z.infer<typeof zBotStats>;
+
 /* The public bot directory, spec tag Directory (`GET /api/bots`). */
 export const zBotListing = z.object({
     profileId: zIdentifier,
@@ -338,7 +374,10 @@ export const zBotListing = z.object({
     owner: zIdentifier.optional(),
     online: z.boolean(),
     openForChallenges: z.boolean(),
-    /* What the bot declared it will play under; absent when it never declared. */
+    /* What the bot declared: its text and its clocks, absent while never declared. */
+    about: z.string().optional(),
+    version: z.string().optional(),
+    repoUrl: z.string().optional(),
     accepts: zBotAccepts.optional(),
 });
 export type BotListing = z.infer<typeof zBotListing>;

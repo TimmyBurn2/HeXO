@@ -57,6 +57,7 @@ import { BotAccountService, MAX_BOTS_PER_OWNER } from '../../bots/botAccountServ
 import { BotAuthService } from '../../bots/botAuthService';
 import { BotDirectoryService } from '../../bots/botDirectoryService';
 import { BotMoveError, BotPlayService } from '../../bots/botPlayService';
+import { BotStatsService } from '../../bots/botStatsService';
 import { BotStreamRegistry } from '../../bots/botStreamRegistry';
 import { BotChallengeError, ChallengeService } from '../../bots/challengeService';
 import { HouseBotService } from '../../bots/houseBotService';
@@ -174,6 +175,7 @@ export class ApiRouter {
         @inject(BotDirectoryService) private readonly botDirectoryService: BotDirectoryService,
         @inject(BotPlayService) private readonly botPlayService: BotPlayService,
         @inject(BotStreamRegistry) private readonly botStreamRegistry: BotStreamRegistry,
+        @inject(BotStatsService) private readonly botStatsService: BotStatsService,
         @inject(ChallengeService) private readonly challengeService: ChallengeService,
         @inject(HouseBotService) private readonly houseBotService: HouseBotService,
     ) {
@@ -254,6 +256,7 @@ export class ApiRouter {
             /* Subscribing here keeps the flag the only switch: off, nothing listens. */
             this.botStreamRegistry.attach();
             this.challengeService.attach();
+            this.botStatsService.attach();
 
             router.get(`/bot/account`, async (req, res) => {
                 await this.handleBotApiRequest(req, res, async (bot) => {
@@ -363,6 +366,15 @@ export class ApiRouter {
              * `opponent: {kind:'bot'}`, like a house bot. */
             router.get(`/bots`, async (req, res) => {
                 res.json(await this.botDirectoryService.listBots(req.query.online === `1`));
+            });
+
+            /* A bot's record is public knowledge, like the roster it belongs to. */
+            router.get(`/bots/:profileId/stats`, async (req, res) => {
+                try {
+                    res.json(await this.botStatsService.getFor(req.params.profileId));
+                } catch (error: unknown) {
+                    this.sendBotSiteError(res, error);
+                }
             });
 
             /* The owner's Challenge button: same service as the bot route, cookie
